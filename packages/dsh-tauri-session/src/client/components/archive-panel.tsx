@@ -264,7 +264,7 @@ export function ArchivePanel(props: ArchivePanelProps): ReactElement | null {
                     aria-expanded={openGroupMenu === group.id}
                     onClick={() => setOpenGroupMenu(openGroupMenu === group.id ? null : group.id)}
                   >
-                    <Icon as={Ellipsis} />
+                    <Icon size={12} as={Ellipsis} />
                   </button>
                 )}
               />

@@ -49,7 +49,7 @@ export const dshExternal: Array<string | RegExp> = [
 ]
 
 /**
- * 需要内联进 client bundle 的依赖（UnJS 工具库 + date-fns）。
+ * 需要内联进 client bundle 的依赖（UnJS 工具库 + date-fns + css-render 系列）。
  *
  * client bundle 在 DSH Web ModuleLoader（dsh-client-modules）的 factory 里运行，
  * 其模块表只认识平台种子词（react / @deepseek-ai/*）与已加载的链接模块
@@ -60,10 +60,18 @@ export const dshExternal: Array<string | RegExp> = [
  * 因此 client entry 必须把它们内联；host entry 保持 external（Node 运行时按
  * 插件 dependencies 解析）。子路径（unstorage/drivers/*）一并覆盖。
  * date-fns 仅作为构建期 devDependency，并按实际使用导出 tree-shake 后内联。
+ *
+ * css-render / @css-render/plugin-bem 与 @gravity-ui/icons 同类：纯 client UI 库，
+ * 只被插件 client 样式代码消耗，声明为 dependencies 时会被 tsdown 默认 external，
+ * 使 loader 模块表查不到；凡在 client 里直接 import 必须内联。统一经
+ * dsh-tauri-ui/client 提供 cssr 实例的插件不应再单独内联（它们是共享实例的
+ * 消费者），只有真正直接 import 这两个包的 client bundle 才需要内联。
  */
 const dshClientInline: Array<string | RegExp> = [
   /^(unstorage|hookable|ofetch|pathe|date-fns)([/-].*)?$/,
   /^@gravity-ui\/icons([/-].*)?$/,
+  /^css-render([/-].*)?$/,
+  /^@css-render\/plugin-bem([/-].*)?$/,
 ]
 
 export function defineDshConfig(options: DshConfigOptions = {}) {

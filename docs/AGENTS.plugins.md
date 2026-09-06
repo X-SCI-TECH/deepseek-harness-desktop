@@ -249,7 +249,7 @@ ctx.slots.register(
 ## 构建与部署约定
 
 - 每个包经 `dsh-tauri-tsdown` 的 `defineDshConfig()` 构建：host entry = `src/index.ts`，client entry = `src/client/index.ts`（CJS + ModuleLoader factory）。
-- client bundle 必须把 `unstorage` / `hookable` / `ofetch` / `pathe` 内联（`noExternal`，见 dsh-tauri-tsdown），否则 loader 模块表找不到会报 "missed the module table"；host bundle 保持 external（运行时按依赖解析）。
+- client bundle 必须把 `unstorage` / `hookable` / `ofetch` / `pathe` / `css-render` / `@css-render/plugin-bem`（以及 `@gravity-ui/icons`）内联（`noExternal`，见 dsh-tauri-tsdown 的 `dshClientInline`），否则 loader 模块表找不到会报 "missed the module table"；host bundle 保持 external（运行时按依赖解析）。
 - 桌面端通过 `pnpm build`（prebuild 部署插件到 `src-tauri/resources`）消费各包 dist；不要提交 dist 与部署产物（已被 gitignore）。
 
 ## 退级策略

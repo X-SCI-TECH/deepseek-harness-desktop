@@ -63,11 +63,11 @@ export default c([
   // 激活态绿色小圆点（右上角），未激活时隐藏。
   c('.dshp-pet__icon-dot', {
     position: 'absolute',
-    top: '2px',
-    right: '2px',
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
+    top: '6px',
+    right: '6px',
+    width: '4px',
+    height: '4px',
+    borderRadius: '100%',
     background: 'var(--dsw-alias-state-success-primary, #3ddc84)',
     display: 'none',
   }),
