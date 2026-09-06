@@ -20,7 +20,6 @@ export const CMD_SHOW_PET = 'show_pet'
 export const CMD_HIDE_PET = 'hide_pet'
 export const CMD_LIST_PETS = 'list_pets'
 export const CMD_IMPORT_PET = 'import_pet'
-export const CMD_PUSH_PET_SESSION = 'push_pet_session'
 export const CMD_GET_PET_ASSET = 'get_pet_asset'
 export const CMD_LIST_PRESET_PETS = 'list_preset_pets'
 export const CMD_DOWNLOAD_PRESET_PET = 'download_preset_pet'
@@ -39,38 +38,3 @@ export const PET_DEFAULT_SIZE = 100
 export const PET_SIZE_MIN = 50
 export const PET_SIZE_MAX = 200
 export const PET_SIZE_STEP = 5
-
-/** 实时活动折叠：流式 delta 事件逐 token 触发，按会话做 trailing 节流合并推送。 */
-export const PET_ACTIVITY_THROTTLE_MS = 300
-/** 会话快照转发合并节流：多个会话的更新事件一次突发只触发一次批量 flush，避免背压。 */
-export const PET_SESSION_UPDATE_THROTTLE_MS = 100
-/**
- * 会话注册表 list 订阅触发的对账合并节流：agentic 活动下 list 会高频 emit（每 tick 重建 byId），
- * 合帧后再跑一次 sync()，避免对全部会话反复做「无变化」重投影（skipProj 爆炸）。
- */
-export const PET_SESSION_SYNC_COALESCE_MS = 100
-/** 会话注册表对账轮询周期：把 250ms 放宽到 1000ms，降低 idle 时对大量历史会话的重复检查频率。 */
-export const PET_SESSION_SYNC_INTERVAL_MS = 1000
-/** 思考文本只保留尾部窗口：展示「最新思考内容」，同时限制跨窗口传输体积。 */
-export const PET_REASONING_TAIL_LENGTH = 160
-/** 流式累积的工具参数最大长度：tool/call 离散事件随后会携带完整 arguments 替换，截断只影响 streaming 期间的一瞬展示。 */
-export const PET_TOOL_ARGS_MAX_LENGTH = 2000
-
-/**
- * dsh 会话事件词汇表（@deepseek-ai/dsh-session KNOWN_SESSION_EVENT_TYPES）中实时活动
- * 折叠用到的类型。窗口条目有两种信封：{ type:'event', event: SessionEvent }（离散事件，
- * 事件类型即 SESSION_EVENT_*）与 { type:'chunks', event: ChunkRowEvent }（打包的流式
- * delta 行，类型即 SESSION_EVENT_CHUNKROW_*，data.texts/args 为逐 token 增量数组）。
- */
-export const SESSION_EVENT_ASSISTANT_CHUNK = 'assistant/chunk'
-export const SESSION_EVENT_ASSISTANT_MESSAGE = 'assistant/message'
-export const SESSION_EVENT_TOOL_CALL = 'tool/call'
-export const SESSION_EVENT_TOOL_RESULT = 'tool/result'
-export const SESSION_EVENT_STEP_START = 'step/start'
-export const SESSION_EVENT_STEP_END = 'step/end'
-export const SESSION_EVENT_TURN_START = 'turn/start'
-export const SESSION_EVENT_TURN_END = 'turn/end'
-export const SESSION_EVENT_USER_MESSAGE = 'user/message'
-export const SESSION_EVENT_CHUNKROW_TEXT = 'chunkrow/text-chunks'
-export const SESSION_EVENT_CHUNKROW_REASONING = 'chunkrow/reasoning-chunks'
-export const SESSION_EVENT_CHUNKROW_TOOL_CALL = 'chunkrow/tool-call-chunks'

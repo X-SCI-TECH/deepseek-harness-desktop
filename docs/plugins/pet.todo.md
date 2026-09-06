@@ -554,9 +554,9 @@ failed/review/running/waiting（会话）
 - `packages/dsh-tauri-pet/src/client/components/pet-settings.tsx`：双 tab、卡片、导入、底部尺寸滑条。
 - `packages/dsh-tauri-pet/src/client/register/pet.ts`：设置页注册、新会话创建、prefill map。
 - `packages/dsh-tauri-pet/src/client/components/prefill.tsx`：调用 `inputActions.setDraft()`，不得 submit。
-- `packages/dsh-tauri-pet/src/client/service/activity.ts`：会话状态 → pet activity/bubble bridge。
-- `packages/dsh-tauri-pet/src/client/utils/activity.ts`：状态映射和 Unicode bubble 截断。
-- `packages/dsh-tauri-pet/src/client/service/pet.ts`：Tauri invoke 协议。
+- `packages/dsh-tauri-pet/src/client/service/pet.ts`：Tauri invoke 协议（会话转发已移除，仅设置/状态命令）。
+- ~~`packages/dsh-tauri-pet/src/client/service/activity.ts`~~：已移除（客户端前向转发器，方案 1 迁往宿主 host reducer）。
+- ~~`packages/dsh-tauri-pet/src/client/utils/{projection,transferable,activity}.ts`~~：已移除（forwarder 私有辅助，宿主流接管）。
 - `packages/dsh-tauri-pet/src/client/dom/sidebar-icon.ts`：启用与瞬时 show/hide。
 - `packages/dsh-tauri-pet/src/client/styles/index.ts`：css-render 设置页样式。
 

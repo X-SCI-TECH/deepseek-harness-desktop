@@ -23,6 +23,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
+use futures_util::StreamExt;
 
 /// 宠物大小百分比合法区间（精灵图缩放 50%–200%，与插件设置页滑条一致）。
 pub const PET_SIZE_MIN: f64 = pet_window::PET_SIZE_MIN_PERCENT;
@@ -260,6 +261,99 @@ pub fn push_pet_session(
         session,
     )
     .map_err(|error| format!("PET_SESSION_PUSH_FAILED: failed to emit session {id}: {error}"))
+}
+
+/// DSH 宿主会话增量 SSE 流路径（与 packages/dsh-tauri-pet/src/index.ts 的
+/// SESSION_STREAM_PATH 保持一致）。
+const SESSION_STREAM_PATH: &str = "/api/dsh-pet/session-stream";
+
+/// 会话增量「动作 → 桌宠窗口事件名」映射（与 push_pet_session 共用）。
+fn session_event_of(action: &str) -> Option<&'static str> {
+    match action {
+        "create" => Some("session:create"),
+        "update" => Some("session:update"),
+        "remove" => Some("session:remove"),
+        _ => None,
+    }
+}
+
+/// 直接把「动作 + 展示载荷」推给桌宠窗口（返回是否成功，仅用于 debug 日志）。
+fn emit_pet_session(app: &AppHandle, action: &str, payload: &Value) {
+    let Some(event) = session_event_of(action) else { return; };
+    let _ = app.emit_to(pet_window::PET_WINDOW_LABEL, event, payload.clone());
+}
+
+/// 消费宿主会话增量 SSE 流：读取 `http://127.0.0.1:<port>/api/dsh-pet/session-stream`，
+/// 每个 `data:` 帧（`{"action":...,"payload":...}`）解析后经 emit_to 直达桌宠 WebView。
+///
+/// 方案 1（host → rust → pet）：Rust 不再依赖 iframe 的 invoke 桥转发（#396 根因），
+/// 而是作为宿主流的消费者。流中断（宿主未就绪/重启）时退避重连，幂等可恢复。
+async fn consume_pet_session_stream(app: &AppHandle, url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer: Vec<u8> = Vec::new();
+    // SSE: data: 行累积，遇空行派发一帧；': keepalive' 注释帧忽略。
+    let mut pending_data: Vec<String> = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        buffer.extend_from_slice(&chunk);
+        while let Some(position) = buffer.iter().position(|&byte| byte == b'\n') {
+            let line_bytes: Vec<u8> = buffer.drain(..=position).collect();
+            let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len() - 1]).into_owned();
+            let trimmed = line.trim();
+            if let Some(data) = trimmed.strip_prefix("data:") {
+                pending_data.push(data.trim().to_string());
+            }
+            else if trimmed.is_empty() {
+                if !pending_data.is_empty() {
+                    let frame: Value = serde_json::from_str(&pending_data.join("\n"))
+                        .map_err(|error| error.to_string())?;
+                    let action = frame
+                        .get("action")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let payload = frame.get("payload").cloned().unwrap_or(Value::Null);
+                    emit_pet_session(app, &action, &payload);
+                    pending_data.clear();
+                }
+            }
+            // 其余（'：' 开头的注释帧等）忽略。
+        }
+    }
+    Ok(())
+}
+
+/// 启动「宿主会话增量 SSE」消费后台任务（见 consume_pet_session_stream）。
+/// 应用 setup 时调用一次；内部无限重连。
+pub fn spawn_pet_session_stream(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let setting = config::get_store_dat_setting(&app);
+            let url = format!("http://127.0.0.1:{}{}", setting.port, SESSION_STREAM_PATH);
+            match consume_pet_session_stream(&app, &url).await {
+                Ok(()) => {
+                    log::info!("[pet-stream] host session stream ended; reconnecting in 2s");
+                }
+                Err(error) => {
+                    log::warn!("[pet-stream] host session stream error: {error}; reconnecting in 2s");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    });
 }
 
 /// 按物理像素增量移动桌宠窗口，限制在可见显示器并保存最终位置。

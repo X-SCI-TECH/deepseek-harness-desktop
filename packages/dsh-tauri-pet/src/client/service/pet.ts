@@ -9,7 +9,6 @@ import {
   CMD_IMPORT_PET,
   CMD_LIST_PETS,
   CMD_LIST_PRESET_PETS,
-  CMD_PUSH_PET_SESSION,
   CMD_SET_ACTIVE_PET,
   CMD_SET_PET_ENABLED,
   CMD_SET_PET_SIZE,
@@ -50,14 +49,6 @@ export function fetchPetAsset(id: string): Promise<PetAsset> {
 
 export function importPet(name: string, data: string): Promise<PetListItem> {
   return invokeBridgedTauri<PetListItem>(CMD_IMPORT_PET, { name, data })
-}
-
-/** Forward one untouched DSH session snapshot to the pet webview. */
-export function pushPetSession(
-  action: 'create' | 'update' | 'remove',
-  session: Record<string, unknown>,
-): Promise<void> {
-  return invokeBridgedTauri<void>(CMD_PUSH_PET_SESSION, { action, session })
 }
 
 /** 预设宠物清单（resources/preset-pets.json + 本机安装状态）。 */

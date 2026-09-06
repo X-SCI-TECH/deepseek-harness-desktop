@@ -19,7 +19,6 @@ import { mountStyle } from 'dsh-tauri-ui/client'
 import { PET_CLIENT_PLUGIN, PET_STYLES_EFFECT } from './constants'
 import { registerLocale } from './locales'
 import { registerPetIconPatch, registerPetPrefill, registerPetSection } from './register/pet'
-import { registerPetSessionForwarder } from './service/activity'
 import petEntryStyle from './styles/index.cssr'
 
 /** 插件显示名（诊断元数据）。 */
@@ -40,5 +39,4 @@ export function apply(ctx: ClientContext): void {
   registerPetSection(ctx)
   registerPetIconPatch(ctx)
   registerPetPrefill(ctx)
-  registerPetSessionForwarder(ctx)
 }

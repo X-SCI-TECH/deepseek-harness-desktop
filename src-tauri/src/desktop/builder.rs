@@ -628,6 +628,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             // 桌宠窗口：按「是否启用」设置惰性创建/显示（幂等）。
             crate::desktop::pet::init_pet_window(&app_handle);
             setup(app_handle.clone());
+            // 方案 1（host → rust → pet）：Rust 作为宿主会话增量 SSE 流的消费者，
+            // 不再依赖 iframe 的 invoke 桥转发（#396 根因）。断连自动重连。
+            crate::bridge::pet::spawn_pet_session_stream(app_handle.clone());
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {

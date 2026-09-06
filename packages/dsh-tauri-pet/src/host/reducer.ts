@@ -1,0 +1,496 @@
+/**
+ * src/host/reducer.ts — dsh-tauri-pet 宿主侧「会话增量 → 桌宠展示态」reducer。
+ *
+ * 【为什么存在】
+ * 方案 1（host → rust → pet webview）把转发从 iframe 客户端快照差分（#396 根因）
+ * 搬到宿主。宿主只有 `session/event` 这个【增量】总线，没有客户端的已合并快照，
+ * 所以必须把增量事件【状态化重建】成桌宠需要的展示态（status/running/activity/…）。
+ * 这与 dsh-dafeiyu 的 companion-reducer 是同一类组件，但只投影桌宠白名单字段。
+ *
+ * 【解耦】
+ * 本 reducer 是纯函数式、与运行时 session 形状去耦：它只消费一个明确的最小
+ * `SessionPeer` 输入（id/origin/title/running…），由宿主 apply() 从真实 session
+ * 对象读取后传入。这样 reducer 可用真实事件形状做 hermetic 单测，而把「宿主
+ * session 到底有什么字段」这个无法本会话运行时验证的不确定性隔离到薄薄的
+ * apply() 适配层。
+ *
+ * 【状态模型】按 sessionId 维护一份可显式突变的累计态（type State）：
+ * 没有订阅 state 的完整 Txn，而是通过 applyEvent() 微缩进重放得出当前展示视角
+ * （与项目既有 diff 逻辑一致：fold 出当前值，再与 lastProjected 引用比对去重）。
+ */
+
+/**
+ * 最小会话增量事件类型（与 @deepseek-ai/dsh-session 的
+ * `SessionEvent = { type, seq, time, data: SessionEventMap[type] }` 契约对齐）。
+ * 故意做成本地类型而非从 dsh-session 导入：dsh-tauri-pet 未直接依赖该包，
+ * 且把「运行时可能携带的额外字段」隔离，reducer 只消费它声明的最小字段。
+ */
+export interface PetSessionEvent {
+  type: string
+  seq: number
+  time: number
+  data?: Record<string, unknown>
+}
+
+/** 宿主 apply() 从真实 session 对象上读取的最小输入（保持与运行时形状解耦）。 */
+export interface PetSessionPeer {
+  id: string
+  origin?: 'subagent'
+  title?: string
+  displayTitle?: string
+  cwd?: string
+  running?: boolean
+}
+
+/**
+ * 桌宠展示态的字段子集（与客户端 projection.ts 的 PET_FORWARDED_FIELDS
+ * + PET_FORWARDED_ACTIVITY_FIELD='liveActivity' 对齐；origin 已加入）。
+ */
+export interface PetSessionPayload {
+  id: string
+  origin?: 'subagent'
+  title?: string
+  displayTitle?: string
+  name?: string
+  description?: string
+  message?: string
+  status?: string
+  activity?: string
+  phase?: string
+  running?: boolean
+  pendingInteraction?: unknown
+  pending?: readonly unknown[]
+  lastAgentError?: string
+  liveActivity?: {
+    kind: string
+    text?: string
+    name?: string
+    command?: string
+    path?: string
+    args?: string
+  }
+}
+
+/** 推理文本滚动尾部窗口字符数：超出后丢弃最早内容，供气泡「思考 · text」实时滚动展示。 */
+export const PET_REASONING_TAIL_WINDOW = 120
+/** 推理文本推送间隔（毫秒）：最多每 500ms 推送一次尾部内容，避免逐 token 洪泛。 */
+export const PET_REASONING_PUSH_INTERVAL_MS = 500
+
+/** 每个会话的全量累计态；fold 出展示 payload 后与 lastSent 深比较去重。 */
+export interface PetSessionState {
+  id: string
+  origin?: 'subagent'
+  title?: string
+  displayTitle?: string
+  cwd?: string
+  running: boolean
+  turnActive: boolean
+  stepActive: boolean
+  openTools: Map<string, { name: string, args?: string }>
+  /** 累计的 reasoning 文本（滚动尾部窗口，用于 liveActivity.kind==='reasoning'；实时更新时新字从前往后滚动丢弃）。 */
+  reasoningTail: string
+  /** 最近一条助手普通文本（用于 message）。 */
+  assistantText: string
+  lastAgentError?: string
+  /** 等待用户交互标记（approval/user-question 等）。 */
+  waitingKind?: 'approval' | 'user-question' | 'blocked'
+  /** 当前待审批的 approval 请求 id（来自 approval/asked，无则不等待审批）。 */
+  waitingApprovalId?: string
+  /** 当前「等用户回答」的问句工具调用 id（来自 user-question tool/call）。 */
+  waitingCallId?: string
+  /** 首次写入时间戳，当前不用于去重（保留给未来生命周期）。 */
+  firstSeqAt: number
+}
+
+/** 新建一个会话的累计态。 */
+export function createPetSessionState(id: string, peer: PetSessionPeer): PetSessionState {
+  return {
+    id,
+    origin: peer.origin,
+    title: peer.title,
+    displayTitle: peer.displayTitle,
+    cwd: peer.cwd,
+    running: peer.running ?? false,
+    turnActive: false,
+    stepActive: false,
+    openTools: new Map(),
+    reasoningTail: '',
+    assistantText: '',
+    firstSeqAt: 0,
+  }
+}
+
+/** 两个 payload 是否深相等（以 fold 出的关键字段表征）。 */
+function payloadEqual(a: PetSessionPayload, b: PetSessionPayload): boolean {
+  return Object.is(a.status, b.status)
+    && Object.is(a.activity, b.activity)
+    && Object.is(a.phase, b.phase)
+    && Object.is(a.running, b.running)
+    && Object.is(a.message, b.message)
+    && Object.is(a.lastAgentError, b.lastAgentError)
+    && Object.is(a.origin, b.origin)
+    && Object.is(a.title, b.title)
+    && Object.is(a.displayTitle, b.displayTitle)
+    && Object.is(a.liveActivity?.kind, b.liveActivity?.kind)
+    && Object.is(a.liveActivity?.text, b.liveActivity?.text)
+    && Object.is(a.liveActivity?.name, b.liveActivity?.name)
+    && Object.is(a.liveActivity?.command, b.liveActivity?.command)
+    && Object.is(a.liveActivity?.path, b.liveActivity?.path)
+    && Object.is(a.liveActivity?.args, b.liveActivity?.args)
+}
+
+/** 从累计态 fold 出当前展示 payload（只投影桌宠关心的字段）。 */
+export function foldPetPayload(state: PetSessionState): PetSessionPayload {
+  // 活动优先级：正在等结果的工具调用 > 累计的 reasoning 文本 > 无。
+  const liveActivity = state.running && state.openTools.size > 0
+    ? toolActivity(
+        state.openTools.values().next().value?.name,
+        state.openTools.values().next().value?.args,
+      )
+    : state.running && state.reasoningTail.length > 0
+      ? { kind: 'reasoning', text: state.reasoningTail }
+      : undefined
+
+  let status: string | undefined
+  if (state.lastAgentError)
+    status = 'error'
+  else if (state.waitingKind)
+    status = 'waiting'
+  else if (state.running)
+    status = 'running'
+  else if (state.turnActive)
+    status = 'running'
+
+  return {
+    id: state.id,
+    origin: state.origin,
+    title: state.title ?? state.displayTitle,
+    displayTitle: state.displayTitle,
+    message: state.assistantText || undefined,
+    status,
+    activity: status,
+    phase: state.waitingKind,
+    running: state.running,
+    lastAgentError: state.lastAgentError,
+    liveActivity,
+  }
+}
+
+/** 工具名 → liveActivity 展示对象（与 use-bubble.ts getLiveActivity 对齐：携带 args 供其解析 command/path）。 */
+function toolActivity(name?: string, args?: string): PetSessionPayload['liveActivity'] {
+  if (!name)
+    return { kind: 'tool' }
+  const lower = name.toLowerCase()
+  if (lower === 'pwsh' || lower === 'bash')
+    return { kind: 'tool', name, args }
+  if (lower === 'str_replace_editor' || lower === 'edit' || lower === 'write')
+    return { kind: 'tool', name, args }
+  return { kind: 'tool', name, args }
+}
+
+/**
+ * 从 tool 事件提取调用 id（与 dsh-dafeiyu companion-reducer 的 toolCallIdOf 对齐）。
+ * tool/call 直接给 data.callId；tool/result 的 callId 藏在 data.message 里
+ * （source.callId / content[].toolCallId / message.toolCallId | callId），
+ * 拿不到时才回退 fallback。
+ */
+function toolCallIdOf(event: PetSessionEvent, fallback = ''): string {
+  const message = (event.data as Record<string, unknown> | undefined)?.message as Record<string, unknown> | undefined
+  const content = Array.isArray(message?.content)
+    ? (message.content as Array<Record<string, unknown>>).find(item => item.toolCallId)
+    : undefined
+  const callId = (message?.source as { callId?: unknown } | undefined)?.callId
+    ?? content?.toolCallId
+    ?? message?.toolCallId
+    ?? message?.callId
+    ?? (event.data as Record<string, unknown> | undefined)?.callId
+  return String(callId ?? fallback)
+}
+
+/**
+ * 判断一个工具名是否是「等用户回答」的问句工具（approval/澄清/确认类），
+ * 而非普通脚本（避免把 code_review/allowlist_files/permission_scan 误判为等待态）。
+ * 依据 dsh-dafeiyu companion-reducer 的 isUserQuestionTool：按整体 token 匹配
+ * （`\b` 不切分 snake_case），而非子串。
+ */
+function isUserQuestionTool(name?: string): boolean {
+  const value = String(name || '').toLowerCase()
+  const tokens = value.split(/[^a-z0-9]+/u).filter(Boolean)
+  if (!tokens.length)
+    return false
+
+  const asks = new Set(['ask', 'asking', 'request', 'requests', 'requesting', 'require', 'requires', 'prompt', 'needs', 'need', 'seek', 'seeks', 'get', 'gets'])
+  const filler = new Set(['for', 'from', 'the', 'a', 'an'])
+  const userWords = new Set(['user', 'human', 'me'])
+  const nouns = new Set(['question', 'questions', 'input', 'answer', 'answers', 'decision', 'decisions', 'confirmation', 'approval', 'permission', 'authorization', 'authorisation', 'consent', 'clarify', 'clarification', 'help'])
+
+  const hasUserNoun = tokens.some((token, index) =>
+    userWords.has(token) && nouns.has(tokens[index + 1] ?? ''),
+  )
+  const hasNounFromUser = tokens.some((token, index) =>
+    nouns.has(token) && tokens[index + 1] === 'from' && userWords.has(tokens[index + 2] ?? ''),
+  )
+  const hasAsk = tokens.some((token, index) => {
+    if (!asks.has(token))
+      return false
+    let cursor = index + 1
+    while (cursor < tokens.length && (filler.has(tokens[cursor]) || userWords.has(tokens[cursor]))) {
+      if (userWords.has(tokens[cursor])) {
+        const next = tokens[cursor + 1]
+        return !next || nouns.has(next)
+      }
+      cursor += 1
+    }
+    return cursor < tokens.length && nouns.has(tokens[cursor])
+  })
+  const strong = tokens.some(token =>
+    token === 'authorize' || token === 'authorise' || token === 'consent',
+  )
+  const submitsPlanForApproval = tokens.some((token, index) =>
+    token === 'exit' && tokens[index + 1] === 'plan' && tokens[index + 2] === 'mode',
+  )
+  return hasUserNoun || hasNounFromUser || hasAsk || strong || submitsPlanForApproval
+}
+
+/** 一次会话增量事件的 reducer：返回变化后的 payload 或 null（未变化则不转发）。 */
+export function reduceSessionEvent(
+  state: PetSessionState,
+  event: PetSessionEvent,
+): PetSessionPayload | null {
+  const t = event.type as string
+  // 注意：SessionEvent = { type, seq, time, data }；事件载荷都在 event.data 下。
+  const data = (event as { data?: Record<string, unknown> }).data ?? {}
+
+  switch (t) {
+    case 'turn/start': {
+      state.turnActive = true
+      state.running = true
+      state.reasoningTail = ''
+      state.assistantText = ''
+      state.waitingKind = undefined
+      state.waitingApprovalId = undefined
+      state.waitingCallId = undefined
+      break
+    }
+    case 'step/start':
+    case 'assistant/chunk': {
+      state.stepActive = true
+      state.running = true
+      if (t === 'assistant/chunk') {
+        // StreamChunk 真实形状：reasoning-delta / text-delta 携带增量 text（非 chunk.content）。
+        const chunk = data.chunk as { type?: string, text?: string } | undefined
+        if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string' && chunk.text) {
+          // 滚动尾部窗口：只保留最近的文本，新内容不断挤掉最早的，气泡即可实时滚动更新。
+          state.reasoningTail = (state.reasoningTail + chunk.text).slice(-PET_REASONING_TAIL_WINDOW)
+          // reasoning 需要实时浮出（气泡「思考 · text」），但不逐 token 洪泛：仅当
+          // 尾部文本实际变化才折叠（下方 foldable 判定对 assistant/chunk 在本分支处理）。
+          return foldPetPayload(state)
+        }
+        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string' && chunk.text)
+          state.assistantText = (state.assistantText + chunk.text).slice(-1000)
+        // 其余 chunk 类型（block-start/finish/usage/空帧）只累积状态，不转发。
+        return null
+      }
+      break
+    }
+    case 'assistant/message': {
+      state.stepActive = true
+      state.running = true
+      // AssistantMessage.content 是 ContentBlock[]（text/reasoning/tool-call…），拼接 text 块。
+      const blocks = (data.message as { content?: unknown[] } | undefined)?.content as Array<{ type?: string, text?: string }> | undefined
+      const text = blocks?.filter(b => b?.type === 'text' && typeof b.text === 'string').map(b => b.text).join('')
+      if (text)
+        state.assistantText = text.slice(-1000)
+      break
+    }
+    case 'tool/call': {
+      const tc = data as { callId?: string, name?: string, arguments?: string }
+      // 携带原始 arguments JSON 字符串，供气泡 getLiveActivity 解析 command/path。
+      const name = tc.name
+      if (name)
+        state.openTools.set(tc.callId ?? name, { name, args: tc.arguments })
+      state.running = true
+      // 问句工具：等用户回答（approval/澄清/确认），展示为「等待中」而非「思考中」。
+      if (name && isUserQuestionTool(name)) {
+        state.waitingKind = 'user-question'
+        state.waitingCallId = tc.callId ?? name
+      }
+      break
+    }
+    case 'tool/result': {
+      // tool/result 的 callId 藏在 data.message 下，能拿到就精确删对应工具；
+      // 拿不到（旧形状）则清空「当前在等待结果的工具」—— 刚结束的工具应退场。
+      const callId = toolCallIdOf(event)
+      if (callId) {
+        state.openTools.delete(callId)
+        if (callId === state.waitingCallId) {
+          state.waitingKind = undefined
+          state.waitingCallId = undefined
+        }
+      }
+      else {
+        state.openTools.clear()
+      }
+      const err = data.error as { name?: string } | undefined
+      if (err?.name)
+        state.lastAgentError = String(err.name)
+      break
+    }
+    case 'approval/asked': {
+      // 待审批（plan/tool/sandbox 审批）：展示为「等待中」，而非「思考中」。
+      const id = String(data.id ?? '')
+      state.waitingKind = 'approval'
+      state.waitingApprovalId = id
+      state.running = true
+      break
+    }
+    case 'approval/decided': {
+      const id = String(data.id ?? '')
+      if (state.waitingApprovalId && id === state.waitingApprovalId) {
+        state.waitingApprovalId = undefined
+        state.waitingKind = undefined
+      }
+      else {
+        // 与当前记录不匹配：状态未变，不转发。
+        return null
+      }
+      break
+    }
+    case 'user/message': {
+      // 用户消息（含合成上下文）只标记会话活跃，不写入展示 message，
+      // 避免把用户提示当成助手描述。展示 message 只来自 assistant/message。
+      state.running = true
+      state.turnActive = true
+      // 若此前在等用户回答（问句工具），用户已应答 → 清除等待态。
+      if (state.waitingCallId !== undefined) {
+        state.waitingKind = undefined
+        state.waitingCallId = undefined
+      }
+      break
+    }
+    case 'session/title': {
+      // 会话标题日志事件：覆盖身份字段（title/displayTitle 取同一值；origin 由 peer 权威覆盖）。
+      const title = (data as { title?: string }).title
+      if (typeof title === 'string' && title) {
+        state.title = title
+        state.displayTitle = title
+      }
+      break
+    }
+    case 'turn/end': {
+      state.turnActive = false
+      state.stepActive = false
+      state.running = false
+      state.openTools.clear()
+      state.reasoningTail = ''
+      state.assistantText = ''
+      state.waitingApprovalId = undefined
+      state.waitingCallId = undefined
+      const reason = (data as { reason?: { kind?: string } }).reason
+      if (reason?.kind === 'blocked') {
+        // 会话被阻塞等待用户处理：展示为「等待中」。
+        state.waitingKind = 'blocked'
+      }
+      else {
+        state.waitingKind = undefined
+        if (reason?.kind === 'error' || reason?.kind === 'aborted') {
+          const errBody = (data as { reason?: { error?: { message?: string } } }).reason
+          state.lastAgentError = errBody?.error?.message ?? reason.kind
+        }
+      }
+      break
+    }
+    default:
+      break
+  }
+
+  // 只在「我们关心的变化」边界 fold+去重，避免高频转发 —— 这正是 #396 的客户端版根因，
+  // host 版同样要防。assistant/chunk（reasoning/text 增量）只做状态累积、不在此 fold
+  // （逐 token 转发会产生洪泛），推理/正文文本在 assistant/message 等边界一并折叠。
+  const foldable = t === 'turn/start'
+    || t === 'step/start'
+    || t === 'assistant/message'
+    || t === 'tool/call'
+    || t === 'tool/result'
+    || t === 'user/message'
+    || t === 'turn/end'
+    || t === 'session/title'
+    || t === 'approval/asked'
+    || t === 'approval/decided'
+  if (!foldable)
+    return null
+
+  return foldPetPayload(state)
+}
+
+/**
+ * 便捷包装：维持 per-session 累计态 + lastSent 去重，只在展示态真的变化时回调。
+ * 推理文本（assistant/chunk 的 reasoning-delta）按 PET_REASONING_PUSH_INTERVAL_MS 节流，
+ * 避免逐 token 洪泛 —— 状态实时累积，但最多每 500ms 推送一次最新尾部。
+ * @param handle - 变化时回调 (action, payload)。
+ * @param opts - 可选注入时钟（默认 Date.now），供单测 hermetic 推进时间。
+ */
+export function createPetSessionReducer(
+  handle: (action: 'create' | 'update' | 'remove', payload: PetSessionPayload) => void,
+  opts?: { now?: () => number },
+) {
+  const now = opts?.now ?? (() => Date.now())
+  const states = new Map<string, PetSessionState>()
+  const lastSent = new Map<string, PetSessionPayload>()
+  const lastReasoningPushAt = new Map<string, number>()
+
+  return {
+    /** 会话出生：建态并 push create。 */
+    create(peer: PetSessionPeer): void {
+      const state = createPetSessionState(peer.id, peer)
+      states.set(peer.id, state)
+      const payload = foldPetPayload(state)
+      lastSent.set(peer.id, payload)
+      handle('create', payload)
+    },
+    /** 增量事件驱动：更新态，变化才 push update。 */
+    apply(peer: PetSessionPeer, event: PetSessionEvent): void {
+      let state = states.get(peer.id)
+      if (!state) {
+        state = createPetSessionState(peer.id, peer)
+        states.set(peer.id, state)
+      }
+      // 每次事件后用 peer 最新身份字段覆盖（title/origin/running 是权威来源）。
+      state.title = peer.title ?? state.title
+      state.displayTitle = peer.displayTitle ?? state.displayTitle
+      state.origin = peer.origin ?? state.origin
+      state.cwd = peer.cwd ?? state.cwd
+
+      const payload = reduceSessionEvent(state, event)
+      if (!payload)
+        return
+      // 推理文本节流：仅对流式 reasoning-delta 生效（边界事件如 turn/end、tool 转换
+      // 立即推送）；窗口内只累积状态，跳过转发，窗口到达后再推最新尾部。
+      if (event.type === 'assistant/chunk' && payload.liveActivity?.kind === 'reasoning') {
+        const t = now()
+        const last = lastReasoningPushAt.get(peer.id) ?? 0
+        if (t - last < PET_REASONING_PUSH_INTERVAL_MS)
+          return
+        lastReasoningPushAt.set(peer.id, t)
+      }
+      const previous = lastSent.get(peer.id)
+      if (previous && payloadEqual(previous, payload))
+        return
+      lastSent.set(peer.id, payload)
+      handle('update', payload)
+    },
+    /** 会话消失：push remove 并清态。 */
+    remove(id: string): void {
+      states.delete(id)
+      lastSent.delete(id)
+      lastReasoningPushAt.delete(id)
+      handle('remove', { id })
+    },
+    /** 清空（宿主 gate 关闭时）。 */
+    clear(): void {
+      states.clear()
+      lastSent.clear()
+      lastReasoningPushAt.clear()
+    },
+  }
+}
