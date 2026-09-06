@@ -220,7 +220,7 @@ function WorktreeModeControl({ sessionId, useInput, inputActions, sessionsRuntim
       <span className="dshp-mode-select__icon">
         <Icon as={CircleTree} size={13} />
       </span>
-      <span>{activeLabel}</span>
+      <span className="dshp-mode-select__label">{activeLabel}</span>
       <Icon as={ChevronDown} className="dshp-mode-select__chevron" />
     </button>
   )

@@ -1,17 +1,17 @@
 import { cssr } from 'dsh-tauri-ui/client'
 
-const { bem: { b, e, m } } = cssr
+const { c } = cssr
 
 /** 工作树状态条（surface.tsx）：会话下方状态条 + 折叠日志。 */
-export default b('worktree', [
-  e('surface', {
+export default c([
+  c('.dshp-worktree__surface', {
     boxSizing: 'border-box',
     width: 'calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset))',
     maxWidth: 'calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset))',
     margin: '0 auto',
     alignSelf: 'center',
   }),
-  e('surface-bar', {
+  c('.dshp-worktree__surface-bar', {
     boxSizing: 'border-box',
     width: '100%',
     position: 'relative',
@@ -27,9 +27,9 @@ export default b('worktree', [
     color: 'var(--dsw-alias-label-primary)',
     pointerEvents: 'auto',
   }),
-  e('surface-content', { display: 'flex', alignItems: 'center', gap: '5px' }),
-  e('surface-label', { fontSize: '13px', lineHeight: '20px', fontWeight: 500 }),
-  e('action', {
+  c('.dshp-worktree__surface-content', { display: 'flex', alignItems: 'center', gap: '5px' }),
+  c('.dshp-worktree__surface-label', { fontSize: '13px', lineHeight: '20px', fontWeight: 500 }),
+  c('.dshp-worktree__action', {
     height: '26px',
     padding: '0 10px',
     border: 'none',
@@ -40,21 +40,19 @@ export default b('worktree', [
     color: 'var(--dsw-alias-label-primary)',
     background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08))',
     whiteSpace: 'nowrap',
-  }, [
-    m('log', { padding: 0, fontSize: '13px', background: 'transparent', textDecoration: 'underline' }),
-    m('danger', { color: 'var(--dsw-alias-danger-foreground, #c0392b)', background: 'transparent' }),
-  ]),
-  e('spacer', { flex: 1 }),
-  e('logs', {
+  }),
+  c('.dshp-worktree__action.dshp-worktree__action--log', { padding: 0, fontSize: '13px', background: 'transparent', textDecoration: 'underline' }),
+  c('.dshp-worktree__action.dshp-worktree__action--danger', { color: 'var(--dsw-alias-danger-foreground, #c0392b)', background: 'transparent' }),
+  c('.dshp-worktree__spacer', { flex: 1 }),
+  c('.dshp-worktree__logs', {
     display: 'grid',
     gridTemplateRows: '0fr',
     opacity: 0,
     transition: 'grid-template-rows 180ms cubic-bezier(.16, 1, .3, 1), opacity 140ms ease',
-  }, [
-    m('open', { gridTemplateRows: '1fr', opacity: 1 }),
-  ]),
-  e('logs-inner', { minHeight: 0, overflow: 'hidden' }),
-  e('logs-panel', {
+  }),
+  c('.dshp-worktree__logs.dshp-worktree__logs--open', { gridTemplateRows: '1fr', opacity: 1 }),
+  c('.dshp-worktree__logs-inner', { minHeight: 0, overflow: 'hidden' }),
+  c('.dshp-worktree__logs-panel', {
     maxHeight: '180px',
     overflowY: 'auto',
     padding: '10px',
@@ -63,5 +61,5 @@ export default b('worktree', [
     background: 'var(--dsw-alias-bg-base)',
     zIndex: 30,
   }),
-  e('log-line', { fontSize: '12px', fontFamily: 'cursive', lineHeight: '16px' }),
+  c('.dshp-worktree__log-line', { fontSize: '12px', fontFamily: 'cursive', lineHeight: '16px' }),
 ])

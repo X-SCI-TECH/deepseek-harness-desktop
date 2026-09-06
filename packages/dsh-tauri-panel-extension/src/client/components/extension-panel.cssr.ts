@@ -1,11 +1,11 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c, bem: { b, e } } = cssr
+const { c } = cssr
 const { primary, tertiary, borderL2: border, business } = sharedStyles
 
 /** 扩展面板外壳（extension-panel.tsx）：Tabs 布局。 */
-export default b('extension', [
-  e('section', {
+export default c([
+  c('.dshp-extension__section', {
     display: 'flex',
     flexDirection: 'column',
     gap: '14px',
@@ -13,14 +13,14 @@ export default b('extension', [
     maxWidth: '760px',
     color: primary,
   }),
-  e('tabs', {
+  c('.dshp-extension__tabs', {
     display: 'flex',
     alignItems: 'flex-end',
     gap: '22px',
     borderBottom: `1px solid ${border}`,
     marginTop: '2px',
   }),
-  e('tab', {
+  c('.dshp-extension__tab', {
     position: 'relative',
     border: '0',
     padding: '7px 1px 9px',
@@ -49,5 +49,5 @@ export default b('extension', [
       color: primary,
     }),
   ]),
-  e('tab-panel', { minWidth: '0', paddingTop: '2px' }),
+  c('.dshp-extension__tab-panel', { minWidth: '0', paddingTop: '2px' }),
 ])

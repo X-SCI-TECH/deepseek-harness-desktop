@@ -48,7 +48,7 @@ import {
 } from '../store'
 import { useMountStyle } from '../style'
 import { Icon } from './icon'
-import { ArrowRight } from './icons'
+import { ArrowLeft } from './icons'
 import { SettingsNavIcon } from './nav-icon'
 import settingsSidebarStyle from './sidebar.cssr'
 
@@ -123,7 +123,7 @@ export function SettingsSidebar(_props: SettingsSidebarProps): ReactElement | nu
           className="dshp-settings-sidebar__back"
           onClick={() => closeSettings()}
         >
-          <Icon as={ArrowRight} />
+          <Icon as={ArrowLeft} />
           {settingsText('back')}
         </button>
         <input

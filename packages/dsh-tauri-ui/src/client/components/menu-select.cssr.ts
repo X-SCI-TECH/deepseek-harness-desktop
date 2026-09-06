@@ -17,7 +17,12 @@ export default b('menu-select', {
   background: modulePlatform,
   color: primary,
   cursor: 'pointer',
+  // 对齐官方 .oY77xG_selector（PermissionRow.module.css）：font 简写之后需显式
+  // font-size/line-height，否则跨规则时 font:inherit 会抢占字号，导致依赖继承的
+  // default 变体（如 dshp-session__menu-select）字体异常放大。
   font: 'inherit',
+  fontSize: '14px',
+  lineHeight: '22px',
   whiteSpace: 'nowrap',
 }, [
   c('&:hover', { background: hover }),

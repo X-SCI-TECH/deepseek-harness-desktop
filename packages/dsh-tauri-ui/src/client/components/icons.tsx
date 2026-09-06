@@ -5,6 +5,7 @@
  * owns sizing; upstream components remain the authoritative SVG implementation.
  */
 export { default as ArrowDownToLine } from '@gravity-ui/icons/ArrowDownToLine'
+export { default as ArrowLeft } from '@gravity-ui/icons/ArrowLeft'
 export { default as ArrowRight } from '@gravity-ui/icons/ArrowRight'
 export { default as ArrowRotateRight } from '@gravity-ui/icons/ArrowRotateRight'
 export { default as Calendar } from '@gravity-ui/icons/Calendar'

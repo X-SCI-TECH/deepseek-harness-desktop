@@ -16,6 +16,9 @@ import type { WorkspacesRuntime, WorktreeDialogProps } from '../types'
  * 职责拆分：slot 注册在 register/dialog.ts，工作区顶部插入逻辑在 lib/worktree.ts。
  */
 import { useEffect } from 'react'
+import { useMountStyle } from 'dsh-tauri-ui/client'
+import { DIALOG_STYLE_ID } from '../constants'
+import dialogStyle from './dialog.cssr'
 import { text, useLocale } from '../locales'
 import { applyCheckout, applyDiscard } from '../service/actions'
 import { patchSession, useWorktreeSession } from '../store'
@@ -31,6 +34,7 @@ import { resolveWorkspaceTopInsertion } from '../utils/worktree'
  */
 export function WorktreeDialog({ useSessions, workspacesRuntime, sessionsRuntime }: WorktreeDialogProps): ReactElement | null {
   useLocale()
+  useMountStyle(dialogStyle, DIALOG_STYLE_ID)
   const sessionId = useSessions(state => state.current)
   const state = useWorktreeSession(sessionId)
   const checkout = state.checkoutOpen

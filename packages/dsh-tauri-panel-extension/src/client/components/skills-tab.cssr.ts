@@ -1,11 +1,11 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c, bem: { b, e } } = cssr
-const { primary, secondary, tertiary, borderL2: border, business, layer3, hover } = sharedStyles
+const { c } = cssr
+const { primary, secondary, tertiary, borderL2: border, business, layer1, layer3, hover } = sharedStyles
 
 /** 技能列表（skills-tab.tsx）：头部 + 横幅 + 刷新。 */
-export default b('extension', [
-  e('head', {
+export default c([
+  c('.dshp-extension__head', {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
@@ -14,7 +14,7 @@ export default b('extension', [
     c('& h3', { margin: '0', fontSize: '13px', lineHeight: '20px', fontWeight: '600' }),
     c('& > svg', { flex: 'none', color: tertiary }),
   ]),
-  e('list-head', {
+  c('.dshp-extension__list-head', {
     display: 'flex',
     alignItems: 'baseline',
     gap: '7px',
@@ -23,8 +23,8 @@ export default b('extension', [
   }, [
     c('& h3', { margin: '0', fontSize: '13px', lineHeight: '20px', fontWeight: '600' }),
   ]),
-  e('count', { fontSize: '12px', lineHeight: '18px', color: tertiary, fontVariantNumeric: 'tabular-nums' }),
-  e('refresh', {
+  c('.dshp-extension__count', { fontSize: '12px', lineHeight: '18px', color: tertiary, fontVariantNumeric: 'tabular-nums' }),
+  c('.dshp-extension__refresh', {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -40,7 +40,7 @@ export default b('extension', [
     c('&:hover', { background: hover, color: primary }),
     c('&:focus-visible', { outline: `2px solid ${business}`, outlineOffset: '-2px' }),
   ]),
-  e('icon-link', {
+  c('.dshp-extension__icon-link', {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -56,7 +56,7 @@ export default b('extension', [
     c('&:hover', { background: hover, color: primary }),
     c('&:focus-visible', { outline: `2px solid ${business}`, outlineOffset: '-2px' }),
   ]),
-  e('banner', {
+  c('.dshp-extension__banner', {
     display: 'flex',
     alignItems: 'flex-start',
     gap: '8px',
@@ -80,8 +80,8 @@ export default b('extension', [
       background: `color-mix(in srgb,${business} 8%,transparent)`,
     }),
   ]),
-  e('banner-body', { flex: '1', minWidth: '0', display: 'flex', flexDirection: 'column', gap: '4px' }),
-  e('banner-hint', {
+  c('.dshp-extension__banner-body', { flex: '1', minWidth: '0', display: 'flex', flexDirection: 'column', gap: '4px' }),
+  c('.dshp-extension__banner-hint', {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
@@ -90,4 +90,57 @@ export default b('extension', [
     fontSize: '12px',
     lineHeight: '18px',
   }),
+  c('.dshp-extension__chips', { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }),
+  c('.dshp-extension__chip', {
+    border: `1px solid ${border}`,
+    borderRadius: '999px',
+    padding: '2px 10px',
+    background: 'transparent',
+    color: secondary,
+    font: 'inherit',
+    fontSize: '12px',
+    cursor: 'pointer',
+  }, [
+    c('&:hover, &[data-active="true"]', { color: business, background: hover }),
+  ]),
+  c('.dshp-extension__switch', {
+    position: 'relative',
+    flex: 'none',
+    width: '30px',
+    height: '18px',
+    border: '0',
+    borderRadius: '999px',
+    background: layer1,
+    boxShadow: `inset 0 0 0 1px ${border}`,
+    cursor: 'pointer',
+  }, [
+    c('&[aria-checked="true"]', {
+      background: `color-mix(in srgb,${business} 55%,transparent)`,
+      boxShadow: 'none',
+    }),
+    c('&[aria-checked="true"] .dshp-extension__switch-knob', { left: '14px', background: '#fff' }),
+  ]),
+  c('.dshp-extension__switch-knob', {
+    position: 'absolute',
+    top: '2px',
+    left: '2px',
+    width: '14px',
+    height: '14px',
+    borderRadius: '50%',
+    background: primary,
+    transition: 'left .15s',
+  }),
+  c('.dshp-extension__link', {
+    border: '0',
+    padding: '0',
+    background: 'transparent',
+    font: 'inherit',
+    fontSize: '12px',
+    lineHeight: '18px',
+    cursor: 'pointer',
+    textDecoration: 'none',
+    color: business,
+  }, [
+    c('&:hover', { textDecoration: 'underline' }),
+  ]),
 ])

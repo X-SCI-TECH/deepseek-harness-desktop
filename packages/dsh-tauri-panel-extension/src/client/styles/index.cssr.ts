@@ -1,14 +1,14 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c, bem: { b, e, m } } = cssr
+const { c } = cssr
 const { primary, secondary, tertiary, borderL2: border, business, layer1, layer3, hover } = sharedStyles
 
 /** 跨组件通用：卡片列表 / 标签 / 空态文案 / 代码块（技能与 MCP 页共享）。 */
-export default b('extension', [
-  e('intro', { margin: '0', fontSize: '13px', lineHeight: '20px', color: tertiary }),
-  e('empty', { margin: '0', fontSize: '13px', lineHeight: '20px', color: tertiary }),
-  e('spacer', { flex: '1' }),
-  e('search', {
+export default c([
+  c('.dshp-extension__intro', { margin: '0', fontSize: '13px', lineHeight: '20px', color: tertiary }),
+  c('.dshp-extension__empty', { margin: '0', fontSize: '13px', lineHeight: '20px', color: tertiary }),
+  c('.dshp-extension__spacer', { flex: '1' }),
+  c('.dshp-extension__search', {
     width: '200px',
     boxSizing: 'border-box',
     border: `1px solid ${border}`,
@@ -26,7 +26,7 @@ export default b('extension', [
       boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
     }),
   ]),
-  e('cards', {
+  c('.dshp-extension__cards', {
     display: 'grid',
     gridTemplateColumns: 'repeat(2,minmax(0,1fr))',
     alignItems: 'stretch',
@@ -34,10 +34,9 @@ export default b('extension', [
     margin: '0',
     padding: '0',
     listStyle: 'none',
-  }, [
-    m('single', { gridTemplateColumns: 'minmax(0,1fr)' }),
-  ]),
-  e('card', {
+  }),
+  c('.dshp-extension__cards.dshp-extension__cards--single', { gridTemplateColumns: 'minmax(0,1fr)' }),
+  c('.dshp-extension__card', {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
@@ -48,11 +47,11 @@ export default b('extension', [
     padding: '12px 14px',
   }, [
     c('&:hover', { background: hover }),
-    m('muted', { opacity: '.55' }),
   ]),
-  e('card-top', { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }),
-  e('card-row', { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }),
-  e('card-title', {
+  c('.dshp-extension__card.dshp-extension__card--muted', { opacity: '.55' }),
+  c('.dshp-extension__card-top', { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }),
+  c('.dshp-extension__card-row', { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }),
+  c('.dshp-extension__card-title', {
     flex: '1',
     minWidth: '0',
     overflow: 'hidden',
@@ -63,7 +62,7 @@ export default b('extension', [
     fontWeight: '600',
     fontFamily: 'var(--ds-font-family-code)',
   }),
-  e('card-desc', {
+  c('.dshp-extension__card-desc', {
     margin: '0',
     fontSize: '12px',
     lineHeight: '18px',
@@ -73,7 +72,7 @@ export default b('extension', [
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
   }),
-  e('tag', {
+  c('.dshp-extension__tag', {
     display: 'inline-flex',
     alignItems: 'center',
     minHeight: '20px',
@@ -94,7 +93,7 @@ export default b('extension', [
       color: secondary,
     }),
   ]),
-  e('code', {
+  c('.dshp-extension__code', {
     fontFamily: 'var(--ds-font-family-code)',
     fontSize: '11px',
     lineHeight: '17px',
