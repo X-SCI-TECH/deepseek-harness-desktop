@@ -70,7 +70,7 @@ export function ExtensionPanel({ t, createSkill }: ExtensionPanelProps): ReactEl
       </div>
       {rows.filter(row => row.id === activeId || visited.has(row.id)).map((row) => {
         const selected = row.id === activeId
-        return <div key={row.id} id={`${tabsId}-panel-${row.id}`} className="dshp-extension__tabPanel" role="tabpanel" aria-labelledby={`${tabsId}-tab-${row.id}`} hidden={!selected}>{row.id === 'skills' ? <SkillsTab t={t} createSkill={createSkill} /> : <McpTab t={t} />}</div>
+        return <div key={row.id} id={`${tabsId}-panel-${row.id}`} className="dshp-extension__tab-panel" role="tabpanel" aria-labelledby={`${tabsId}-tab-${row.id}`} hidden={!selected}>{row.id === 'skills' ? <SkillsTab t={t} createSkill={createSkill} /> : <McpTab t={t} />}</div>
       })}
       </div>
     </div>

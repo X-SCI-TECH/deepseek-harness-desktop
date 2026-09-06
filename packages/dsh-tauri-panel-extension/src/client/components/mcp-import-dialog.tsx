@@ -63,7 +63,7 @@ export function McpImportDialog(props: McpImportDialogProps): ReactElement {
                       </label>
                     )}
                   </div>
-                  <ul className="dshp-extension__cards dshp-extension__cardsSingle">
+                  <ul className="dshp-extension__cards dshp-extension__cards--single">
                     {group.items.map(({ item, index }) => {
                       const command = item.server.transport === 'stdio'
                         ? `${item.server.command ?? ''} ${(item.server.args ?? []).join(' ')}`.trim()
@@ -93,7 +93,7 @@ export function McpImportDialog(props: McpImportDialogProps): ReactElement {
             })}
           </div>
         )}
-        {formError !== null && <p className="dshp-extension__formError">{formError}</p>}
+        {formError !== null && <p className="dshp-extension__form-error">{formError}</p>}
         <div className="dshp-extension__card-row">
           <span className="dshp-extension__spacer" />
           <Button variant="ghost" onClick={onClose}>{t('cancel')}</Button>

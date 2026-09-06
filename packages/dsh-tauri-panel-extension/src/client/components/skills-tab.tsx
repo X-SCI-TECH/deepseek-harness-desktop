@@ -219,7 +219,7 @@ export function SkillsTab({ t, createSkill }: SkillsTabProps): ReactElement {
       {outcome && (
         <div className="dshp-extension__banner" data-kind={outcome.ok ? 'ok' : 'error'} role="status">
           <StateDot state={outcome.ok ? 'done' : 'error'} size={10} />
-          <div className="dshp-extension__bannerBody">{outcome.text}</div>
+          <div className="dshp-extension__banner-body">{outcome.text}</div>
         </div>
       )}
       <div className="dshp-extension__list-head">
@@ -300,7 +300,7 @@ export function SkillsTab({ t, createSkill }: SkillsTabProps): ReactElement {
               </div>
               {preview ? <div className="dshp-extension__md-preview"><MarkdownPreview text={editor.content} /></div> : <textarea className="dshp-extension__textarea" value={editor.content} readOnly={readOnly} onChange={event => setEditor({ ...editor, content: event.target.value })} />}
             </div>
-            {formError && <p className="dshp-extension__formError">{formError}</p>}
+            {formError && <p className="dshp-extension__form-error">{formError}</p>}
             <div className="dshp-extension__card-row">
               <span className="dshp-extension__spacer" />
               <Button variant="ghost" onClick={() => setEditor(null)}>{readOnly ? t('close') : t('cancel')}</Button>
@@ -341,7 +341,7 @@ export function SkillsTab({ t, createSkill }: SkillsTabProps): ReactElement {
               }}
             />
           </label>
-          {formError && <p className="dshp-extension__formError">{formError}</p>}
+          {formError && <p className="dshp-extension__form-error">{formError}</p>}
           <div className="dshp-extension__card-row">
             <span className="dshp-extension__spacer" />
             <Button variant="ghost" disabled={busy} onClick={() => setImportOpen(false)}>{t('cancel')}</Button>

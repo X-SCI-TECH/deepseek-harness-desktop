@@ -278,9 +278,9 @@ export function McpTab({ t }: McpTabProps): ReactElement {
   const restartBanner = (
     <div className="dshp-extension__banner" data-kind="info" role="status">
       <StateDot state="ongoing" size={10} />
-      <div className="dshp-extension__bannerBody">
+      <div className="dshp-extension__banner-body">
         <span>{restarting ? t('restarting') : t('restartNeeded')}</span>
-        <span className="dshp-extension__bannerHint">
+        <span className="dshp-extension__banner-hint">
           {restarting
             ? (!isMcpDesktop() && t('restartPortHint'))
             : isMcpDesktop()
@@ -312,7 +312,7 @@ export function McpTab({ t }: McpTabProps): ReactElement {
       {outcome !== null && (
         <div className="dshp-extension__banner" data-kind={outcome.ok ? 'ok' : 'error'} role="status">
           <StateDot state={outcome.ok ? 'done' : 'error'} size={10} />
-          <div className="dshp-extension__bannerBody"><span>{outcome.text}</span></div>
+          <div className="dshp-extension__banner-body"><span>{outcome.text}</span></div>
         </div>
       )}
       {(pending || restarting) && restartBanner}

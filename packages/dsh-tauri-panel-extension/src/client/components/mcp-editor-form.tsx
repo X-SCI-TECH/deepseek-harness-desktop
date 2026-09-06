@@ -59,7 +59,7 @@ export function McpEditorForm(props: McpEditorFormProps): ReactElement {
                   onChange={event => onPasteJsonChange(event.target.value)}
                 />
               </label>
-              {pasteError !== null && <p className="dshp-extension__formError">{pasteError}</p>}
+              {pasteError !== null && <p className="dshp-extension__form-error">{pasteError}</p>}
               <div className="dshp-extension__card-row">
                 <Button variant="outline" size="sm" disabled={pasteJson.trim() === ''} onClick={onPasteFill}>{t('formatFill')}</Button>
               </div>
@@ -119,7 +119,7 @@ export function McpEditorForm(props: McpEditorFormProps): ReactElement {
                   )}
             </div>
           )}
-      {formError !== null && <p className="dshp-extension__formError">{formError}</p>}
+      {formError !== null && <p className="dshp-extension__form-error">{formError}</p>}
       <div className="dshp-extension__card-row">
         <span className="dshp-extension__spacer" />
         <Button variant="ghost" onClick={onCancel}>{t('cancel')}</Button>
