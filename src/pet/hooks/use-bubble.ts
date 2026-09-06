@@ -53,6 +53,7 @@ export function useBubble(): BubbleHandle {
     const dismissed = new Set<string>()
     const pruneTimers = new Map<string, number>()
     let lastAgg: PetStatus | undefined
+    let disposed = false
     const updateAgg = () => {
       const next = statusOf(sessions, failedUntil, Date.now())
       if (next !== lastAgg)
@@ -60,7 +61,6 @@ export function useBubble(): BubbleHandle {
       if (!disposed)
         setStatus(next)
     }
-    let disposed = false
 
     const clearTimer = (map: Map<string, number>, id: string) => {
       const timer = map.get(id)
