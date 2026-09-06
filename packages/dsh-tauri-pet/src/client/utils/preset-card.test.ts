@@ -18,6 +18,12 @@ describe('resolvePresetCardAction', () => {
     expect(resolvePresetCardAction({ ...maid, installed: true }, 'maid-deepseek-whale', progress('downloading'))).toBe('selected')
   })
 
+  it('激活 id 为空串（全新安装无默认选择）：未安装给出下载、已安装给出启用', () => {
+    // 不再默认选中内置宠物；active_pet 为空 → 任何预设卡都不显示「已选」。
+    expect(resolvePresetCardAction(maid, '', null)).toBe('download')
+    expect(resolvePresetCardAction({ ...maid, installed: true }, '', null)).toBe('enable')
+  })
+
   it('下载/解压中显示 downloading，不因已安装而跳到 enable', () => {
     expect(resolvePresetCardAction(maid, 'other', progress('downloading'))).toBe('downloading')
     expect(resolvePresetCardAction(maid, 'other', progress('extracting'))).toBe('downloading')

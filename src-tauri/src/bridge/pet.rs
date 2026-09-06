@@ -28,8 +28,6 @@ use zip::ZipArchive;
 pub const PET_SIZE_MIN: f64 = pet_window::PET_SIZE_MIN_PERCENT;
 pub const PET_SIZE_MAX: f64 = pet_window::PET_SIZE_MAX_PERCENT;
 
-/// 缺省选择对外统一呈现的精确内置宠物 id。
-pub const DEFAULT_ACTIVE_PET_ID: &str = "maid-deepseek-whale";
 /// 导入桌宠资源包的压缩大小上限（32 MiB）。
 const PET_PACKAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// 防止 zip 炸弹的条目数与解压后总大小上限。
@@ -71,7 +69,7 @@ pub struct PetStatus {
     pub enabled: bool,
     /// 桌宠窗口当前是否应显示。
     pub visible: bool,
-    /// 当前桌宠 id；持久值缺省或空白时始终返回内置默认 id。
+    /// 当前桌宠 id；持久值缺省或空白时返回空串（未选择任何宠物）。
     pub active_pet: String,
     /// 宠物大小百分比（50–200，100 = 精灵图原始尺寸）；None = 未设置（默认 100）。
     pub pet_size: Option<f64>,
@@ -140,19 +138,17 @@ pub struct PetAsset {
     pub rows: u8,
 }
 
-/// 将缺省、旧版未限定 id 或非法选择归一化为内置默认宠物的精确 id。
-/// 合法值：默认宠物 id、预设宠物 id（~/.dsh/pets 目录，安全字符集）或来源限定 id。
+/// 将缺省、旧版未限定 id 或非法选择归一化为空字符串（未选择任何宠物）。
+/// 合法值：预设宠物 id（~/.dsh/pets 目录，安全字符集）或来源限定 id。
+/// 注意：不再默认给内置宠物 —— 全新安装下 active_pet 为空，需用户先下载再启用。
 fn normalize_active_pet(active_pet: Option<&str>) -> String {
     let Some(id) = active_pet.map(str::trim).filter(|id| !id.is_empty()) else {
-        return DEFAULT_ACTIVE_PET_ID.to_string();
+        return String::new();
     };
-    if id == DEFAULT_ACTIVE_PET_ID
-        || crate::bridge::preset_pet::safe_preset_id(id)
-        || parse_qualified_id(id).is_ok()
-    {
+    if crate::bridge::preset_pet::safe_preset_id(id) || parse_qualified_id(id).is_ok() {
         id.to_string()
     } else {
-        DEFAULT_ACTIVE_PET_ID.to_string()
+        String::new()
     }
 }
 
@@ -347,9 +343,9 @@ fn parse_qualified_id(id: &str) -> Result<(PetSource, &str), String> {
     Ok((source, manifest_id))
 }
 
-/// 校验激活宠物 id：默认宠物、预设宠物（安全字符集）或来源限定 id。
+/// 校验激活宠物 id：预设宠物（安全字符集）或来源限定 id。
 fn validate_active_pet_id(id: &str) -> Result<(), String> {
-    if id == DEFAULT_ACTIVE_PET_ID || crate::bridge::preset_pet::safe_preset_id(id) {
+    if crate::bridge::preset_pet::safe_preset_id(id) {
         return Ok(());
     }
     parse_qualified_id(id).map(|_| ())
@@ -936,9 +932,10 @@ mod tests {
     }
 
     #[test]
-    fn active_pet_defaults_to_exact_builtin_id() {
-        assert_eq!(normalize_active_pet(None), DEFAULT_ACTIVE_PET_ID);
-        assert_eq!(normalize_active_pet(Some("   ")), DEFAULT_ACTIVE_PET_ID);
+    fn active_pet_defaults_to_empty_when_unset_or_invalid() {
+        // 全新安装不再默认选中内置宠物：缺省/空白/非法 id 一律归一为空串（未选择）。
+        assert_eq!(normalize_active_pet(None), "");
+        assert_eq!(normalize_active_pet(Some("   ")), "");
         assert_eq!(
             normalize_active_pet(Some(" chat:custom-pet ")),
             "chat:custom-pet",
@@ -949,14 +946,14 @@ mod tests {
             "codex:custom_pet"
         );
         // 未限定 id（预设宠物，安全字符集）与来源限定 id 都是合法激活选择；
-        // 只有非法字符集 / 未知来源限定才回落内置宠物。
+        // 只有非法字符集 / 未知来源限定才归一为空串（未选择任何宠物）。
         assert_eq!(normalize_active_pet(Some("cat")), "cat");
         assert_eq!(normalize_active_pet(Some("shiba")), "shiba");
         for legacy_or_invalid in ["other:pet", "chat:../pet", "bad id", "x/y"] {
             assert_eq!(
                 normalize_active_pet(Some(legacy_or_invalid)),
-                DEFAULT_ACTIVE_PET_ID,
-                "旧版或非法 id {legacy_or_invalid} 应回落内置宠物"
+                "",
+                "旧版或非法 id {legacy_or_invalid} 应归一为空串（未选择宠物）"
             );
         }
     }
@@ -970,7 +967,7 @@ mod tests {
         let status = status_from_setting(&setting);
         assert!(!status.enabled);
         assert!(!status.visible);
-        assert_eq!(status.active_pet, DEFAULT_ACTIVE_PET_ID);
+        assert_eq!(status.active_pet, "");
     }
 
     #[test]

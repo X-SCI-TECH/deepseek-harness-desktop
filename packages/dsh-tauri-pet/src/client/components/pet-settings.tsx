@@ -2,7 +2,7 @@ import type { ChangeEvent, ReactElement } from 'react'
 import type { PetListItem, PetSettingsProps, PresetDownloadProgress, PresetPetItem } from '../types'
 import { ArrowDownToLine, Icon, Plus, useMountStyle } from 'dsh-tauri-ui/client'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { BUILTIN_PET_ID, PET_DEFAULT_SIZE, PET_SIZE_MAX, PET_SIZE_MIN, PET_SIZE_STEP } from '../constants'
+import { PET_DEFAULT_SIZE, PET_SIZE_MAX, PET_SIZE_MIN, PET_SIZE_STEP } from '../constants'
 import { text, usePetLocale } from '../locales'
 import {
   downloadPresetPet,
@@ -140,7 +140,7 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
   const committedSizeRef = useRef<number | null>(null)
   const enabled = Boolean(status?.enabled)
   const visible = Boolean(status?.visible)
-  const active = status?.active_pet ?? BUILTIN_PET_ID
+  const active = status?.active_pet ?? ''
   const statusSize = status?.pet_size ?? PET_DEFAULT_SIZE
 
   useEffect(() => {

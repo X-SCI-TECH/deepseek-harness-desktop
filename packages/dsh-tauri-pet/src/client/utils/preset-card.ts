@@ -6,9 +6,9 @@ import type { PresetDownloadProgress, PresetPetItem } from '../types'
  * 优先级：已选（selected）> 下载/解压中（downloading）> 已安装（enable）>
  * 未安装（download）。与设置页 `presetCardAction` 一一对应。
  *
- * 已选必须同时满足「已安装且为当前激活宠物」：内置归一 id（maid-deepseek-whale）
- * 与预设卡 id 相同，新装环境 active_pet 归一为内置 id 但产物尚未下载，此时卡片
- * 必须给出下载入口，而不是显示已选禁用（issue #401）。
+ * 已选必须同时满足「已安装且为当前激活宠物」：预设卡 id（maid-deepseek-whale）与
+ * 激活 id 相同但产物尚未下载，或全新安装 active_pet 为空串（未选择任何宠物）时，
+ * 卡片必须给出下载入口，而不是显示已选禁用（issue #401）。
  *
  * 下载中状态有两个来源：`progress.phase`（进行中的轮询快照）与 `item.phase`
  * （`list_preset_pets` 返回的进程内注册表阶段，跨挂载恢复下载中视图用——组件

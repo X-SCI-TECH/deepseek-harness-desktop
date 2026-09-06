@@ -15,12 +15,11 @@ import {
   rollKind,
 } from '../pet-config'
 
-const BUILT_IN_PET_ID = 'maid-deepseek-whale'
-/** 默认预设宠物未安装时的提示文案：桌宠窗口无 i18n 基础设施（气泡文案同样硬编码），按窗口语言就近显示。 */
+const PET_BASE_WIDTH = 220
+/** 已安装预设被清理/未安装时的提示文案：桌宠窗口无 i18n 基础设施（气泡文案同样硬编码），按窗口语言就近显示。 */
 const PRESET_MISSING_HINT = (document.documentElement.lang || navigator.language || 'zh-CN').toLowerCase().startsWith('zh')
   ? '预设宠物未安装，请在设置中下载'
   : 'Preset pet not installed. Download it in Settings.'
-const PET_BASE_WIDTH = 220
 const PET_DEFAULT_SIZE_PERCENT = 100
 const PET_SIZE_MIN_PERCENT = 50
 const PET_SIZE_MAX_PERCENT = 200
@@ -141,8 +140,9 @@ export function Pet(props: PetProps) {
       error: preset?.error ?? null,
     }
   }, [activePet, petResources])
-  // 默认预设宠物未安装（新装环境 active_pet 归一为内置 id，但产物需手动下载）：
-  // 资源拉取失败时视频层静默空白，这里给出可见提示引导去设置页下载（issue #401）。
+  // 已选预设宠物未安装（如资源被外部清理）：资源拉取失败时视频层静默空白，
+  // 这里给出可见提示引导去设置页下载（issue #401）。全新安装 active_pet 为空串
+  // （无默认选择），不会走此分支。
   const presetMissing = isPreset && error?.includes('PET_PRESET_NOT_INSTALLED') === true
   // 预设宠物配置驱动动画池：池条目是动画名（webm 文件名主名，如 待机呼吸休闲），
   // 点击/拖拽/待机链按名字从 assets map 取 URL。配置缺失或命令失败时回落与旧
@@ -211,7 +211,9 @@ export function Pet(props: PetProps) {
   // 已安装预设的 config.jsonc 池条目（待机呼吸休闲 等）即 webm 文件名主名，
   // assets map 的 key 与池条目一一对应，动画链/点击/拖拽直接按名字取 URL。
   useEffect(() => {
-    if (isPreset === false)
+    // 无激活宠物（active_pet 为空串，全新安装未选择）时不拉取任何资源，避免
+    // 对空 id 发无意义请求或误显示「预设未安装」提示；窗口在未启用时本就不展示。
+    if (isPreset === false || activePet === '')
       return undefined
     let disposed = false
     let loadError: string | null = null
@@ -600,8 +602,9 @@ function toAdHocStatus(entry: string | undefined): string | null {
 }
 
 function normalizeActivePet(value: string | null | undefined): string {
-  const normalized = value?.trim()
-  return normalized || BUILT_IN_PET_ID
+  // 全新安装 active_pet 为空串（未选择任何宠物），不再回落内置宠物；窗口据此
+  // 感知「无宠物」态，避免误渲染一个未安装的默认预设。
+  return value?.trim() || ''
 }
 
 function normalizePetSize(value: number | null | undefined): number {
