@@ -45,6 +45,11 @@ export const PET_SIZE_STEP = 5
 export const PET_ACTIVITY_THROTTLE_MS = 300
 /** 会话快照转发合并节流：多个会话的更新事件一次突发只触发一次批量 flush，避免背压。 */
 export const PET_SESSION_UPDATE_THROTTLE_MS = 100
+/** 会话注册表 list 订阅触发的对账合并节流：agentic 活动下 list 会高频 emit（每 tick 重建 byId），
+ * 合帧后再跑一次 sync()，避免对全部会话反复做「无变化」重投影（skipProj 爆炸）。 */
+export const PET_SESSION_SYNC_COALESCE_MS = 100
+/** 会话注册表对账轮询周期：把 250ms 放宽到 1000ms，降低 idle 时对大量历史会话的重复检查频率。 */
+export const PET_SESSION_SYNC_INTERVAL_MS = 1000
 /** 思考文本只保留尾部窗口：展示「最新思考内容」，同时限制跨窗口传输体积。 */
 export const PET_REASONING_TAIL_LENGTH = 160
 /** 流式累积的工具参数最大长度：tool/call 离散事件随后会携带完整 arguments 替换，截断只影响 streaming 期间的一瞬展示。 */

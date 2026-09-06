@@ -195,10 +195,34 @@ describe('dsh-tauri-pet registerPetSessionForwarder', () => {
     expect(h.petState.pushed).toHaveLength(2)
     expect(h.petState.pushed.map(p => p.action)).toEqual(['create', 'create'])
 
-    // 推进 4 个 250ms 的 reconcile 周期，状态未变，不再转发 update
-    vi.advanceTimersByTime(250 * 4)
+    // 推进 3 个 1000ms 的 reconcile 周期，状态未变，不再转发 update
+    vi.advanceTimersByTime(1000 * 3)
     expect(h.petState.pushed.filter(p => p.action === 'update')).toHaveLength(0)
     expect(h.petState.pushed).toHaveLength(2)
+  })
+
+  it('dirty 标记下 interval 对账仍能捕获新增成员（list/内容变化重新同步）', () => {
+    const a = makeSession('a', { id: 'a', status: 'idle' })
+    const c = makeSession('c', { id: 'c', status: 'idle' })
+    // 初始 list 只有 a；但 binding map 已含 c（模拟上游稍后才把 c 纳入注册表）。
+    const sessions = makeSessions({ a: IDLE_SUMMARY('a') }, [a, c])
+    cleanup = register(sessions)
+
+    expect(h.petState.pushed.map(p => p.action)).toEqual(['create']) // 初始对账：只 a → create
+
+    // 内容变化（a）置 dirty → 100ms flush 转发 update
+    a.setSnapshot({ id: 'a', status: 'running' })
+    vi.advanceTimersByTime(100)
+    expect(h.petState.pushed).toHaveLength(2)
+
+    // 向注册表新增成员 c（改 list.byId/ids，不触发 a/c 的会话订阅）
+    const list = sessions.list.getSnapshot() as unknown as { byId: Record<string, unknown>, ids: string[] }
+    list.byId.c = IDLE_SUMMARY('c')
+    list.ids = ['a', 'c']
+    // interval 对账（此时 dirty=true，来自上面内容变化）→ 捕获 c → 补发 create
+    vi.advanceTimersByTime(1000)
+    expect(h.petState.pushed.map(p => p.action)).toContain('create')
+    expect(h.petState.pushed.map(p => (p.session as { id: string }).id)).toContain('c')
   })
 
   it('宠物未启用（disabled）时完全不转发', () => {
@@ -258,6 +282,25 @@ describe('dsh-tauri-pet registerPetSessionForwarder', () => {
     expect(h.petState.pushed).toHaveLength(1)
     vi.advanceTimersByTime(100)
     expect(h.petState.pushed).toHaveLength(1)
+  })
+
+  it('subagent 会话正常转发，running 翻回 false 时补发 update（不再恒显思考中）', () => {
+    // 子代理会话：list.byId 标 origin==='subagent'（侧边栏按此隐藏，但不影响转发）。
+    // 其 running 由 session-controller 权威维护（run 结束 → handleRunning(false)，保留在注册表）。
+    const a = makeSession('a', { id: 'a', status: 'running', running: true })
+    const sessions = makeSessions({ a: { id: 'a', title: '会话a', origin: 'subagent' } }, [a])
+    cleanup = register(sessions)
+
+    // 注册即 reconcile：subagent 会话照常转发 create（保留转发，气泡进入「思考中」）
+    expect(h.petState.pushed).toHaveLength(1)
+    expect(h.petState.pushed[0]).toMatchObject({ action: 'create', session: { id: 'a', running: true } })
+
+    // 运行结束：snapshot.running 翻回 false → 100ms 合并 flush 后补发一次 update，气泡切「已完成」
+    a.setSnapshot({ id: 'a', status: 'idle', running: false })
+    expect(h.petState.pushed).toHaveLength(1) // 合并节流：还没到 flush 时刻
+    vi.advanceTimersByTime(100)
+    expect(h.petState.pushed).toHaveLength(2)
+    expect(h.petState.pushed[1]).toMatchObject({ action: 'update', session: { id: 'a', running: false } })
   })
 
   it('事件窗口折叠出 liveActivity 时随 update 转发一次', () => {

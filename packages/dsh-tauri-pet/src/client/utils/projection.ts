@@ -13,6 +13,7 @@
 export const PET_FORWARDED_FIELDS = [
   'id',
   'sessionId',
+  'origin',
   'title',
   'displayTitle',
   'name',

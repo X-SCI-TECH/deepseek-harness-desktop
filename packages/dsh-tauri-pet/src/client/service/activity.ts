@@ -1,7 +1,7 @@
 import type { ClientContext } from 'dsh-tauri/client'
 import type { PetStatus, SessionLiveActivity } from '../types'
 import { createLifecycleController } from 'dsh-tauri/client'
-import { PET_ACTIVITY_THROTTLE_MS, PET_SESSION_UPDATE_THROTTLE_MS } from '../constants'
+import { PET_ACTIVITY_THROTTLE_MS, PET_SESSION_SYNC_COALESCE_MS, PET_SESSION_SYNC_INTERVAL_MS, PET_SESSION_UPDATE_THROTTLE_MS } from '../constants'
 import { beginPetStatusFetch, commitPetStatusFetch, getPetUiSnapshot, subscribePetUi } from '../store'
 import { foldSessionActivity } from '../utils/activity'
 import { deepEqual, projectPetPayload } from '../utils/projection'
@@ -9,6 +9,22 @@ import { toTransferable } from '../utils/transferable'
 import { fetchPetStatus, pushPetSession } from './pet'
 
 type SessionAction = 'create' | 'update' | 'remove'
+
+/**
+ * 白名单字段级无变化检测：判断两个投影结果的值引用是否逐一相等（浅比较，按引用）。
+ * projectPetPayload 是浅拷贝，字段值引用直接来自会话源对象；DSH 会话 store 为不可变更新，
+ * 值对象不原地变更，因此「值引用一致 ⇒ 载荷必不变」。非白名单字段 churn 不会被计入变化。
+ */
+function sameRefs(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length)
+    return false
+  for (const key of aKeys) {
+    if (a[key] !== b[key])
+      return false
+  }
+  return true
+}
 
 /**
  * rc.2+ 会话 binding 附带的事件窗口（MutableSessionEventSource，service.js 组装
@@ -48,6 +64,9 @@ interface SessionWatch {
   activityTimer?: ReturnType<typeof setTimeout>
   /** 上次已推送的投影载荷（用于深比较去重，避免无变化空转发）。 */
   lastPayload?: Record<string, unknown>
+  /** 上次白名单投影值引用（浅拷贝，值引用来自会话源对象）。用于「只对白名单字段做无变化检测」：
+   *  non-白名单字段 churn 造出新的 summary/snapshot 对象时，值引用仍一致 ⇒ 载荷必不变，免深克隆。 */
+  lastProjected?: Record<string, unknown>
   /** 上次计算载荷时的输入引用（summary / snapshot / activity）。引用不变 ⇒ 载荷必不变。 */
   lastInput?: {
     summary?: Record<string, unknown>
@@ -57,10 +76,12 @@ interface SessionWatch {
 }
 
 /**
- * 把 DSH 会话原始快照投影后按建议推送给桌宠窗口，不做宠物专用 projection，但做三件事收敛：
+ * 把 DSH 会话原始快照投影后按建议推送给桌宠窗口，不做宠物专用 projection，但做四件事收敛：
  *  - 门控：仅宠物启用（PetStatus.enabled）时才转发，窗口隐藏与否不改变转发；
  *  - 变化检测：summary/snapshot/activity 引用不变则跳过；投影经白名单 + 深比较后才推送；
- *  - 合并背压：会话订阅事件进共享节流队列，一次突发只批量 flush 一帧，避免 250ms 高频空转发。
+ *  - 成员幂等对账：list 订阅合并到一次、只在成员真的变化时才全量 sync()；定时 interval 仅 dirty 时对账，
+ *    空闲时不再反复重投影（高频转发未变化会话正是 #396 前端延迟的根因）；
+ *  - 合并背压：会话订阅事件进共享节流队列，一次突发只批量 flush 一帧。
  * rc.2+ 会话额外订阅事件窗口（binding.eventSource）：流式 delta 逐 token 触发，按会话做
  * trailing 节流，到期时按当前窗口重算实时活动（进行中的工具调用 / 思考流）并以
  * liveActivity 字段并入快照；alpha 缺失事件窗口时退级为纯快照转发。
@@ -74,11 +95,16 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
     let enabled = getPetUiSnapshot().status?.enabled ?? false
     const pendingUpdates = new Set<string>()
     let flushCancel: (() => void) | undefined
+    let syncCancel: (() => void) | undefined
     let disposed = false
+    // #396 性能：dirty 标记用于门控「定时全量对账」。内容变化（emit/成员变化/门控切换）标记为 true，
+    // 对账结束复位为 false。这样 1s interval 只在真正有变化时才做全量 reconcile，空闲时不再反复重投影。
+    let dirty = true
 
     function emit(action: SessionAction, session: Record<string, unknown>): void {
       if (disposed)
         return
+      dirty = true
       const payload = toTransferable(session) as Record<string, unknown>
       void pushPetSession(action, payload).catch((error) => {
         if (!disposed)
@@ -120,6 +146,7 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
       const summary = list.byId?.[id]
       const snapshot = binding.session.getSnapshot()
       const activity = watch.activity
+      // 输入引用未变（summary/snapshot/activity 仍是同一对象）⇒ 载荷必不变，直接跳过。
       if (watch.lastInput !== undefined
         && watch.lastInput.summary === summary
         && watch.lastInput.snapshot === snapshot
@@ -128,12 +155,21 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
       }
       const merged = mergeSnapshot(binding, summary, snapshot, activity)
       const projected = projectPetPayload(merged)
-      const payload = toTransferable(projected) as Record<string, unknown>
-      if (watch.lastPayload !== undefined && deepEqual(payload, watch.lastPayload)) {
+      // 白名单字段级无变化检测：值引用逐一一致 ⇒ 载荷必不变，免 toTransferable 深克隆与深比较
+      // （非白名单字段 churn 会造出新的 summary/snapshot 对象，但白名单值引用仍稳定）。
+      if (watch.lastProjected !== undefined && sameRefs(projected, watch.lastProjected)) {
         watch.lastInput = { summary, snapshot, activity }
         return
       }
+      const payload = toTransferable(projected) as Record<string, unknown>
+      if (watch.lastPayload !== undefined && deepEqual(payload, watch.lastPayload)) {
+        // 引用变但投影结果经白名单+深比较后一致 → 也不转发（仅更新签名）。
+        watch.lastInput = { summary, snapshot, activity }
+        watch.lastProjected = projected
+        return
+      }
       watch.lastPayload = payload
+      watch.lastProjected = projected
       watch.lastInput = { summary, snapshot, activity }
       emit(action, payload)
     }
@@ -153,6 +189,7 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
           watch.activityTimer = undefined
           const current = source.getSnapshot()
           watch.activity = foldSessionActivity(current.entries)
+          // 流式 delta 事件在此 trailing 节流合并为一次折叠，而非逐 token 转发。
           emitIfChanged(id, binding, 'update')
         }, PET_ACTIVITY_THROTTLE_MS)
       }))
@@ -204,6 +241,7 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
         return
       flushCancel = controller.timeout(() => {
         flushCancel = undefined
+        // 一次突发里多个会话的更新只触发一次批量 flush（合并背压）。
         for (const pendingId of pendingUpdates) {
           const binding = sessions.binding(pendingId)
           const watch = watches.get(pendingId)
@@ -219,6 +257,7 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
         return
       enabled = next
       pendingUpdates.clear()
+      dirty = true
       if (enabled) {
         // 重新启用：对当前全部会话补发 create，桌宠窗口重建状态
         sync()
@@ -238,6 +277,9 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
       // 宠物未启用时不重建观察者、不转发任何会话状态（避免高频空转发）
       if (disposed || !enabled)
         return
+      // #396 性能：无任何变化（无 push/无成员变化/无门控切换）时跳过全量对账，interval 只在 dirty 时跑。
+      if (!dirty)
+        return
       const list = sessions.list.getSnapshot()
       const ids = new Set(list.ids)
       for (const id of known) {
@@ -246,6 +288,11 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
           emit('remove', { id })
         }
       }
+      // 会话注册表对账：转发所有识别到的会话（含 subagent）。
+      // subagent 的 `running` 由 session-controller 权威维护：run 结束/移除时经
+      // handleSessionStatus / handleSessionRemoved 置为 false（并作为 durable book-keeping
+      // 保持在注册表，origin==='subagent' 仅用于侧边栏隐藏，不改变转发）。本引擎原样转发该
+      // running 翻转，桌宠气泡据此从「思考中」切到「已完成」，而不是恒显「思考中」。
       for (const id of ids) {
         const binding = sessions.binding(id)
         if (binding === undefined) {
@@ -267,6 +314,28 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
       known.clear()
       for (const id of ids)
         known.add(id)
+      dirty = false
+    }
+
+    // 会话注册表 list 订阅的合并节流：agentic 活动下 list 高频 emit（每 tick 重建 byId），
+    // 若每次都直接 sync()，会把全部会话反复做「无变化」重投影（skipProj 爆炸）。合帧到一次。
+    // #396 性能：成员未变（无新增/移除）时 list 重建只是再造同一批会话的 byId（内容变化已由
+    // 各会话订阅 → scheduleUpdate → flush 处理），无需全量对账——这里只在成员真正变化时才 sync()，
+    // 定时 interval 仍做兜底。这砍掉了 idle 时反复全量重投影的空转。
+    function scheduleSync(): void {
+      if (disposed || !enabled)
+        return
+      if (syncCancel !== undefined)
+        return
+      syncCancel = controller.timeout(() => {
+        syncCancel = undefined
+        const current = sessions.list.getSnapshot().ids
+        // 成员集合与上次对账后完全一致 ⇒ 无新增/移除 ⇒ 跳过全量 sync（内容变化走 flush，定时兜底）。
+        if (known.size === current.length && current.every(id => known.has(id)))
+          return
+        dirty = true
+        sync()
+      }, PET_SESSION_SYNC_COALESCE_MS)
     }
 
     // 门控来源：订阅共享 store 的 enabled 变化（侧栏图标 / 设置页写入）
@@ -285,11 +354,15 @@ export function registerPetSessionForwarder(ctx: ClientContext): void {
         console.warn('[dsh-tauri-pet] fetch pet status failed:', error)
     })
 
-    controller.add(sessions.list.subscribe(sync))
-    controller.interval(sync, 250)
+    controller.add(sessions.list.subscribe(scheduleSync))
+    controller.interval(sync, PET_SESSION_SYNC_INTERVAL_MS)
     controller.add(() => {
       disposed = true
       pendingUpdates.clear()
+      if (syncCancel !== undefined) {
+        syncCancel()
+        syncCancel = undefined
+      }
       for (const id of [...watches.keys()])
         unbind(id)
       known.clear()

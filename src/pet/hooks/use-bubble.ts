@@ -18,6 +18,12 @@ const FAILED_BUBBLE_TIMEOUT = 4000
 const REVIEW_BUBBLE_TIMEOUT = 2500
 const SUCCESS_TOAST_TIMEOUT = 3000
 const FAILED_PULSE_TTL = 1800
+/** 会话完成/变空闲后保留的时长：超过即从会话表沉淀，防止 durable subagent 等永不发 remove 的会话无界积累。 */
+const IDLE_SESSION_RETENTION = 5000
+/** 子代理标签（按窗口语言就近取单语文案；桌宠窗口无 i18n 基础设施，与 pet.tsx 保留文案一致）。 */
+const SUBAGENT_LABEL = (document.documentElement.lang || navigator.language || 'zh-CN').toLowerCase().startsWith('zh')
+  ? '子代理'
+  : 'Subagent'
 
 /** 状态优先级映射，数值越大优先级越高 */
 const STATUS_PRIORITY = {
@@ -45,6 +51,15 @@ export function useBubble(): BubbleHandle {
     const pulseTimers = new Map<string, number>()
     const consumedFailed = new Set<string>()
     const dismissed = new Set<string>()
+    const pruneTimers = new Map<string, number>()
+    let lastAgg: PetStatus | undefined
+    const updateAgg = () => {
+      const next = statusOf(sessions, failedUntil, Date.now())
+      if (next !== lastAgg)
+        lastAgg = next
+      if (!disposed)
+        setStatus(next)
+    }
     let disposed = false
 
     const clearTimer = (map: Map<string, number>, id: string) => {
@@ -62,6 +77,32 @@ export function useBubble(): BubbleHandle {
         toast.close(key)
         toastKeys.delete(id)
       }
+    }
+
+    /** 收敛：会话完成/变空闲后超过 IDLE_SESSION_RETENTION 仍保持 undefined 才移除，避免长期会话里 Map 无界增长。 */
+    const pruneSession = (id: string) => {
+      if (disposed)
+        return
+      const session = sessions.get(id)
+      if (session === undefined || sessionStatus(session) !== undefined)
+        return
+      sessions.delete(id)
+      previousStatus.delete(id)
+      dismissed.delete(id)
+      failedUntil.delete(id)
+      consumedFailed.delete(id)
+      clearTimer(pulseTimers, id)
+      clearTimer(hideTimers, id)
+      closeToast(id)
+      updateAgg()
+    }
+
+    const armPrune = (id: string) => {
+      clearTimer(pruneTimers, id)
+      pruneTimers.set(id, window.setTimeout(() => {
+        pruneTimers.delete(id)
+        pruneSession(id)
+      }, IDLE_SESSION_RETENTION))
     }
 
     const scheduleHide = (id: string, current: PetStatus) => {
@@ -98,7 +139,7 @@ export function useBubble(): BubbleHandle {
           failedUntil.delete(session.id)
           clearTimer(pulseTimers, session.id)
           consumedFailed.add(session.id)
-          setStatus(statusOf(sessions, failedUntil, Date.now()))
+          updateAgg()
         }, FAILED_PULSE_TTL)
 
         pulseTimers.set(session.id, timer)
@@ -121,18 +162,21 @@ export function useBubble(): BubbleHandle {
         if (key !== undefined)
           closeToast(session.id)
         if (completed) {
-          const title = [session.title, session.displayTitle, session.name, session.id]
-            .find(v => typeof v === 'string' && v.trim()) as string || '会话'
-          toast(title.trim(), {
+          toast(sessionTitle(session).trim(), {
             description: '已完成',
             placement: 'top end',
             variant: 'success',
             timeout: SUCCESS_TOAST_TIMEOUT,
           })
         }
+        // 从有状态变为空闲/完成 → 安排沉淀（durable subagent 永不发 remove，靠此收敛）
+        if (previous !== undefined)
+          armPrune(session.id)
         return
       }
 
+      // 会话恢复活跃（running/failed/review/waiting）→ 取消待执行的沉淀
+      clearTimer(pruneTimers, session.id)
       const isTerminal = current === 'failed' || current === 'review'
       if (!isTerminal)
         dismissed.delete(session.id)
@@ -180,6 +224,7 @@ export function useBubble(): BubbleHandle {
         consumedFailed.delete(session.id)
         clearTimer(pulseTimers, session.id)
         clearTimer(hideTimers, session.id)
+        clearTimer(pruneTimers, session.id)
         closeToast(session.id)
       }
       else {
@@ -188,8 +233,7 @@ export function useBubble(): BubbleHandle {
         syncToast(session)
       }
 
-      if (!disposed)
-        setStatus(statusOf(sessions, failedUntil, Date.now()))
+      updateAgg()
     }
 
     let unlisteners: Array<() => void> = []
@@ -210,6 +254,8 @@ export function useBubble(): BubbleHandle {
       hideTimers.clear()
       pulseTimers.forEach(t => window.clearTimeout(t))
       pulseTimers.clear()
+      pruneTimers.forEach(t => window.clearTimeout(t))
+      pruneTimers.clear()
       toastKeys.forEach(k => toast.close(k))
       toastKeys.clear()
     }
@@ -226,6 +272,13 @@ function rawSession(payload: unknown): BubbleSession | undefined {
   const session = (value.session && typeof value.session === 'object' ? value.session : value) as Record<string, unknown>
   const id = session.id ?? session.sessionId
   return typeof id === 'string' && id.length > 0 ? { ...session, id } : undefined
+}
+
+/** 会话标题：子代理（origin==='subagent'）加本地化「子代理/Subagent」前缀，便于区分。 */
+function sessionTitle(session: BubbleSession): string {
+  const base = [session.title, session.displayTitle, session.name, session.id]
+    .find(v => typeof v === 'string' && v.trim()) as string || '会话'
+  return session.origin === 'subagent' ? `${SUBAGENT_LABEL}：${base}` : base
 }
 
 /** 提取单个会话的状态（忽略底层恢复逻辑） */
@@ -321,8 +374,9 @@ function toastContent(session: BubbleSession, status: PetStatus) {
     return undefined
   }
 
-  const title = getFirstString(session.title, session.displayTitle, session.name, session.id) ?? '会话'
-  const statusText = status === 'failed' ? '失败' : status === 'review' ? '待审阅' : status === 'waiting' ? '等待中' : status === 'running' ? '思考中' : '空闲'
+  const isSub = session.origin === 'subagent'
+  const title = sessionTitle(session)
+  const statusText = status === 'failed' ? '失败' : status === 'review' ? '待审阅' : status === 'waiting' ? '等待中' : status === 'running' ? (isSub ? '运行中' : '思考中') : '空闲'
   const description = getFirstString(
     session.description,
     session.message,

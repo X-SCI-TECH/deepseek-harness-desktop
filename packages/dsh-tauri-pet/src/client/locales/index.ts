@@ -80,7 +80,14 @@ export function registerLocale(ctx: ClientContext): void {
   ctx.locale.register(NS, 'zh', DICT_ZH)
   ctx.locale.register(NS, 'en', DICT_EN)
   ctx.locale.subscribe(() => {
-    activeLocale = ctx.locale.getLocale().active
+    try {
+      activeLocale = ctx.locale.getLocale().active
+    }
+    catch {
+      // 插件 reload/卸载时上下文会短暂失效（inactive context），服务访问器抛错；
+      // 此时无需更新本地 locale 快照，忽略本次通知避免 `locale subscriber crashed` 刷屏。
+      return
+    }
     localeRevision.set(state => ({ revision: state.revision + 1 }))
   })
 }

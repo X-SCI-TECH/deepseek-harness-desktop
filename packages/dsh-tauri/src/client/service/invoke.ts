@@ -63,6 +63,7 @@ export function invokeBridgedTauri<T>(
       settled = true
       if (timer !== undefined)
         clearTimeout(timer)
+      // issue #396 修复：完成路径（成功/失败）都必须清理超时计时器，避免高频成功调用遗留「休眠超时闭包」。
       window.removeEventListener('message', onMessage)
       if (reply.ok) {
         resolve(reply.value as T)
