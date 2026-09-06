@@ -1,11 +1,11 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c } = cssr
+const { c, bem: { b, e } } = cssr
 const { primary, borderL2: border, business, layer1, layer3 } = sharedStyles
 
 /** 技能详情 Markdown 预览（markdown.tsx）。 */
-export default c([
-  c('.dshp-extension__md-preview', {
+export default b('extension', [
+  e('md-preview', {
     minHeight: '320px',
     maxHeight: '60vh',
     overflowY: 'auto',
@@ -15,7 +15,7 @@ export default c([
     background: layer1,
     fontSize: '13px',
   }),
-  c('.dshp-extension__md-body', [
+  e('md-body', [
     c('& h1, & h2, & h3, & h4', { margin: '14px 0 6px', color: primary, lineHeight: '1.4' }),
     c('& h1', { fontSize: '18px' }),
     c('& h2', { fontSize: '16px' }),

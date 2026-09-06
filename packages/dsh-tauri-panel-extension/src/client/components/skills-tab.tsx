@@ -264,7 +264,7 @@ export function SkillsTab({ t, createSkill }: SkillsTabProps): ReactElement {
         </ul>
       )}
 
-      <Modal open={editor !== null} onClose={() => setEditor(null)} closeLabel={t('close')} title={editor?.mode === 'edit' ? t('editSkill') : t('viewSkill')} className="dshp-extension__modal-form" contentClassName="dshp-extension__modal-scroll">
+      <Modal open={editor !== null} onClose={() => setEditor(null)} closeLabel={t('close')} title={editor?.mode === 'edit' ? t('editSkill') : t('viewSkill')} className="dshp-extension dshp-extension__modal-form" contentClassName="dshp-extension__modal-scroll">
         {editor && (
           <div className="dshp-extension__form">
             <label className="dshp-extension__label">
@@ -324,7 +324,7 @@ export function SkillsTab({ t, createSkill }: SkillsTabProps): ReactElement {
       >
         <p>{t('deleteWarn')}</p>
       </Modal>
-      <Modal open={importOpen} onClose={() => setImportOpen(false)} closeLabel={t('close')} title={t('importRepositoryTitle')} className="dshp-extension__modal-wide">
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} closeLabel={t('close')} title={t('importRepositoryTitle')} className="dshp-extension dshp-extension__modal-wide">
         <div className="dshp-extension__form">
           <p className="dshp-extension__intro">{t('importRepositoryHint')}</p>
           <label className="dshp-extension__label">

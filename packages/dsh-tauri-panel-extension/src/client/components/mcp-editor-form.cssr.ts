@@ -1,13 +1,13 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c } = cssr
+const { c, bem: { b, e, m } } = cssr
 const { primary, secondary, tertiary, borderL2: border, business, layer1 } = sharedStyles
 
 /** MCP 服务器编辑器（mcp-editor-form.tsx）：表单 + 编辑器页签。 */
-export default c([
-  c('.dshp-extension__form', { display: 'flex', flexDirection: 'column', gap: '10px' }),
-  c('.dshp-extension__editor-tabs', { display: 'flex', gap: '4px', borderBottom: `1px solid ${border}` }),
-  c('.dshp-extension__editor-tab', {
+export default b('extension', [
+  e('form', { display: 'flex', flexDirection: 'column', gap: '10px' }),
+  e('editor-tabs', { display: 'flex', gap: '4px', borderBottom: `1px solid ${border}` }),
+  e('editor-tab', {
     position: 'relative',
     border: '0',
     padding: '7px 10px 9px',
@@ -36,7 +36,7 @@ export default c([
       color: primary,
     }),
   ]),
-  c('.dshp-extension__label', {
+  e('label', {
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
@@ -46,7 +46,7 @@ export default c([
   }, [
     c('& > span:first-child', { color: tertiary }),
   ]),
-  c('.dshp-extension__input', {
+  e('input', {
     width: '100%',
     boxSizing: 'border-box',
     border: `1px solid ${border}`,
@@ -63,7 +63,7 @@ export default c([
       boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
     }),
   ]),
-  c('.dshp-extension__textarea', {
+  e('textarea', {
     width: '100%',
     boxSizing: 'border-box',
     border: `1px solid ${border}`,
@@ -85,7 +85,7 @@ export default c([
       boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
     }),
   ]),
-  c('.dshp-extension__select', {
+  e('select', {
     width: '100%',
     boxSizing: 'border-box',
     border: `1px solid ${border}`,
@@ -102,8 +102,8 @@ export default c([
       boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
     }),
   ]),
-  c('.dshp-extension__json-editor', { minHeight: '260px' }),
-  c('.dshp-extension__checks', {
+  e('json-editor', { minHeight: '260px' }),
+  e('checks', {
     display: 'flex',
     gap: '16px',
     fontSize: '13px',
@@ -117,15 +117,16 @@ export default c([
       minWidth: '0',
     }),
   ]),
-  c('.dshp-extension__import-choice', {
+  e('import-choice', {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
     cursor: 'pointer',
     minWidth: '0',
-  }),
-  c('.dshp-extension__import-choice.dshp-extension__import-choice--disabled', { cursor: 'default' }),
-  c('.dshp-extension__form-error', {
+  }, [
+    m('disabled', { cursor: 'default' }),
+  ]),
+  e('form-error', {
     margin: '0',
     color: 'var(--dsw-alias-state-error-primary)',
     fontSize: '12px',

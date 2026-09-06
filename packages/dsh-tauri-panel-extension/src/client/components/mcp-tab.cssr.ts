@@ -1,11 +1,11 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c } = cssr
+const { c, bem: { b, e } } = cssr
 const { primary, secondary, tertiary, borderL2: border, layer1, hover } = sharedStyles
 
 /** MCP 列表（mcp-tab.tsx）：格式分段 + 标签 chips + 开关 + 链接。 */
-export default c([
-  c('.dshp-extension__segments', {
+export default b('extension', [
+  e('segments', {
     display: 'inline-flex',
     gap: '4px',
     border: `1px solid ${border}`,
@@ -13,7 +13,7 @@ export default c([
     padding: '3px',
     background: layer1,
   }),
-  c('.dshp-extension__segment', {
+  e('segment', {
     border: '0',
     borderRadius: '6px',
     padding: '4px 14px',
@@ -25,7 +25,7 @@ export default c([
   }, [
     c('&[data-active="true"]', { background: hover, color: primary, fontWeight: '600' }),
   ]),
-  c('.dshp-extension__format', {
+  e('format', {
     border: `1px solid ${border}`,
     borderRadius: '8px',
     padding: '8px 12px',
@@ -33,5 +33,5 @@ export default c([
   }, [
     c('& summary', { fontSize: '12px', color: secondary, cursor: 'pointer' }),
   ]),
-  c('.dshp-extension__format-hint', { margin: '2px 0 0', fontSize: '12px', color: tertiary }),
+  e('format-hint', { margin: '2px 0 0', fontSize: '12px', color: tertiary }),
 ])

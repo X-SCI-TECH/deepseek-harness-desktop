@@ -33,7 +33,7 @@ export function McpImportDialog(props: McpImportDialogProps): ReactElement {
       onClose={onClose}
       closeLabel={t('close')}
       title={t('importServers')}
-      className="dshp-extension__modal-wide"
+      className="dshp-extension dshp-extension__modal-wide"
     >
       <div className="dshp-extension__form">
         <p className="dshp-extension__intro">{t('importIntro')}</p>

@@ -29,8 +29,9 @@ export function ExtensionPanel({ t, createSkill }: ExtensionPanelProps): ReactEl
   useEffect(() => setVisited(previous => previous.has(activeId) ? previous : new Set([...previous, activeId])), [activeId])
 
   return (
-    <div className="dshp-extension__section">
-      <div className="dshp-extension__tabs" role="tablist" aria-label={t('extension')}>
+    <div className="dshp-extension">
+      <div className="dshp-extension__section">
+        <div className="dshp-extension__tabs" role="tablist" aria-label={t('extension')}>
         {rows.map((row, index) => {
           const selected = row.id === activeId
           return (
@@ -71,6 +72,7 @@ export function ExtensionPanel({ t, createSkill }: ExtensionPanelProps): ReactEl
         const selected = row.id === activeId
         return <div key={row.id} id={`${tabsId}-panel-${row.id}`} className="dshp-extension__tabPanel" role="tabpanel" aria-labelledby={`${tabsId}-tab-${row.id}`} hidden={!selected}>{row.id === 'skills' ? <SkillsTab t={t} createSkill={createSkill} /> : <McpTab t={t} />}</div>
       })}
+      </div>
     </div>
   )
 }

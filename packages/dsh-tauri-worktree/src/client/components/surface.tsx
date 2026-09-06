@@ -34,7 +34,8 @@ export function WorktreeSurface({ sessionId }: SurfaceBarProps): ReactElement | 
         : text('surfaceWorktree')
 
   return (
-    <div className="dshp-worktree__surface">
+    <div className="dshp-worktree">
+      <div className="dshp-worktree__surface">
       <div className="dshp-worktree__surface-bar" data-dsh-worktree-surface={sessionId}>
         <Icon as={CircleTree} size={14} />
         <div className="dshp-worktree__surface-content">
@@ -61,6 +62,7 @@ export function WorktreeSurface({ sessionId }: SurfaceBarProps): ReactElement | 
         )}
       </div>
       <Logs log={state.log} open={logOpen} />
+      </div>
     </div>
   )
 }

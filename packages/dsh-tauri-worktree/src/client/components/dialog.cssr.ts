@@ -1,10 +1,10 @@
 import { cssr } from 'dsh-tauri-ui/client'
 
-const { c } = cssr
+const { bem: { b, e, m } } = cssr
 
 /** 检出/放弃工作树弹窗（dialog.tsx）：遮罩 + 卡片表单。 */
-export default c([
-  c('.dshp-worktree__modal', {
+export default b('worktree', [
+  e('modal', {
     position: 'absolute',
     inset: 0,
     zIndex: 1000,
@@ -12,7 +12,7 @@ export default c([
     placeItems: 'center',
     background: 'rgba(0,0,0,0.4)',
   }),
-  c('.dshp-worktree__dialog-card', {
+  e('dialog-card', {
     boxSizing: 'border-box',
     width: 'min(460px, calc(100vw - 48px))',
     padding: '20px 22px',
@@ -24,11 +24,11 @@ export default c([
     flexDirection: 'column',
     gap: '14px',
   }),
-  c('.dshp-worktree__dialog-title', { fontSize: '16px', fontWeight: 600, lineHeight: '24px', margin: 0 }),
-  c('.dshp-worktree__dialog-body', { fontSize: '13px', lineHeight: '20px', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))', margin: 0 }),
-  c('.dshp-worktree__dialog-field', { display: 'flex', flexDirection: 'column', gap: '6px' }),
-  c('.dshp-worktree__dialog-field-label', { fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))' }),
-  c('.dshp-worktree__dialog-input-wrap', {
+  e('dialog-title', { fontSize: '16px', fontWeight: 600, lineHeight: '24px', margin: 0 }),
+  e('dialog-body', { fontSize: '13px', lineHeight: '20px', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))', margin: 0 }),
+  e('dialog-field', { display: 'flex', flexDirection: 'column', gap: '6px' }),
+  e('dialog-field-label', { fontSize: '12px', lineHeight: '18px', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))' }),
+  e('dialog-input-wrap', {
     display: 'flex',
     alignItems: 'center',
     gap: 0,
@@ -37,7 +37,7 @@ export default c([
     overflow: 'hidden',
     background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.06))',
   }),
-  c('.dshp-worktree__dialog-input', {
+  e('dialog-input', {
     flex: 1,
     minWidth: 0,
     height: '36px',
@@ -49,12 +49,12 @@ export default c([
     fontSize: '13px',
     outline: 'none',
   }),
-  c('.dshp-worktree__dialog-path-row', { display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '12px', lineHeight: '18px' }),
-  c('.dshp-worktree__dialog-path-key', { flex: 'none', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))' }),
-  c('.dshp-worktree__dialog-path-value', { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }),
-  c('.dshp-worktree__dialog-error', { fontSize: '12px', lineHeight: '18px', color: '#c0392b' }),
-  c('.dshp-worktree__dialog-footer', { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }),
-  c('.dshp-worktree__dialog-button', {
+  e('dialog-path-row', { display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '12px', lineHeight: '18px' }),
+  e('dialog-path-key', { flex: 'none', color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))' }),
+  e('dialog-path-value', { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }),
+  e('dialog-error', { fontSize: '12px', lineHeight: '18px', color: '#c0392b' }),
+  e('dialog-footer', { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }),
+  e('dialog-button', {
     boxSizing: 'border-box',
     height: '36px',
     padding: '0 16px',
@@ -64,9 +64,10 @@ export default c([
     fontSize: '13px',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-  }),
-  c('.dshp-worktree__dialog-button.dshp-worktree__dialog-button--ghost', { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08))' }),
-  c('.dshp-worktree__dialog-button.dshp-worktree__dialog-button--primary', { color: '#fff', background: 'var(--dsw-alias-bg-accent, #2f6feb)' }),
-  c('.dshp-worktree__dialog-button.dshp-worktree__dialog-button--danger', { color: '#fff', background: '#c0392b' }),
-  c('.dshp-worktree__dialog-button.dshp-worktree__dialog-button--disabled', { opacity: 0.5, cursor: 'not-allowed' }),
+  }, [
+    m('ghost', { color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08))' }),
+    m('primary', { color: '#fff', background: 'var(--dsw-alias-bg-accent, #2f6feb)' }),
+    m('danger', { color: '#fff', background: '#c0392b' }),
+    m('disabled', { opacity: 0.5, cursor: 'not-allowed' }),
+  ]),
 ])

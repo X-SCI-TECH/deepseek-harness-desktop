@@ -57,7 +57,8 @@ export function WorktreeDialog({ useSessions, workspacesRuntime, sessionsRuntime
     return null
 
   return (
-    <div className="dshp-worktree__modal" data-dsh-worktree-dialog="1" onClick={closeAll}>
+    <div className="dshp-worktree">
+      <div className="dshp-worktree__modal" data-dsh-worktree-dialog="1" onClick={closeAll}>
       {checkout && (
         <CheckoutDialog
           sessionId={sessionId}
@@ -79,6 +80,7 @@ export function WorktreeDialog({ useSessions, workspacesRuntime, sessionsRuntime
           onCancel={closeAll}
         />
       )}
+      </div>
     </div>
   )
 }

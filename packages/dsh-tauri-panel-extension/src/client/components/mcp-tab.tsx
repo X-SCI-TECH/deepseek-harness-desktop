@@ -356,7 +356,7 @@ export function McpTab({ t }: McpTabProps): ReactElement {
         onClose={() => setEditor(null)}
         closeLabel={t('close')}
         title={editor !== null && editor.id !== '' ? t('editServer') : t('addServer')}
-        className="dshp-extension__modal-form"
+        className="dshp-extension dshp-extension__modal-form"
         contentClassName="dshp-extension__modal-scroll"
       >
         {editor !== null && (
