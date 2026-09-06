@@ -578,9 +578,6 @@ importers:
       pathe:
         specifier: catalog:utils
         version: 2.0.3
-      smol-toml:
-        specifier: catalog:utils
-        version: 1.8.0
       yaml:
         specifier: catalog:testing
         version: 2.9.0
@@ -600,6 +597,9 @@ importers:
       marked:
         specifier: catalog:ui
         version: 18.0.11
+      smol-toml:
+        specifier: catalog:utils
+        version: 1.8.0
       tsdown:
         specifier: catalog:cli
         version: 0.17.4(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(oxc-resolver@11.24.2)(publint@0.3.24)(synckit@0.11.13)(typescript@5.8.3)
@@ -752,25 +752,25 @@ importers:
 
   packages/dsh-tauri-ui:
     dependencies:
-      '@css-render/plugin-bem':
-        specifier: catalog:ui
-        version: 0.15.14(css-render@0.15.14)
-      '@gravity-ui/icons':
-        specifier: catalog:runtime
-        version: 2.21.0(react@19.2.8)
-      css-render:
-        specifier: catalog:ui
-        version: 0.15.14
       dsh-tauri:
         specifier: workspace:*
         version: link:../dsh-tauri
     devDependencies:
+      '@css-render/plugin-bem':
+        specifier: catalog:ui
+        version: 0.15.14(css-render@0.15.14)
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: catalog:dsh
         version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.2))
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: catalog:dsh
         version: 0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(react@19.2.8)
+      '@gravity-ui/icons':
+        specifier: catalog:runtime
+        version: 2.21.0(react@19.2.8)
+      css-render:
+        specifier: catalog:ui
+        version: 0.15.14
       dsh-tauri-tsdown:
         specifier: workspace:*
         version: link:../dsh-tauri-tsdown

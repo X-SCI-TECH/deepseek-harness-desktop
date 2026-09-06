@@ -59,14 +59,14 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@css-render/plugin-bem": "catalog:ui",
-    "@gravity-ui/icons": "catalog:runtime",
-    "css-render": "catalog:ui",
     "dsh-tauri": "workspace:*"
   },
   "devDependencies": {
+    "@css-render/plugin-bem": "catalog:ui",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:dsh",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:dsh",
+    "@gravity-ui/icons": "catalog:runtime",
+    "css-render": "catalog:ui",
     "dsh-tauri-tsdown": "workspace:*",
     "tsdown": "catalog:cli"
   }

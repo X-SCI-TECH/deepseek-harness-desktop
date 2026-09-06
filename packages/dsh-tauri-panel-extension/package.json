@@ -67,7 +67,6 @@
     "hookable": "catalog:utils",
     "ofetch": "catalog:utils",
     "pathe": "catalog:utils",
-    "smol-toml": "catalog:utils",
     "yaml": "catalog:testing"
   },
   "devDependencies": {
@@ -76,6 +75,7 @@
     "dompurify": "catalog:ui",
     "dsh-tauri-tsdown": "workspace:*",
     "marked": "catalog:ui",
+    "smol-toml": "catalog:utils",
     "tsdown": "catalog:cli"
   }
 }
