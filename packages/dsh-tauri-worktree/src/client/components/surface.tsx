@@ -36,32 +36,32 @@ export function WorktreeSurface({ sessionId }: SurfaceBarProps): ReactElement | 
   return (
     <div className="dshp-worktree">
       <div className="dshp-worktree__surface">
-      <div className="dshp-worktree__surface-bar" data-dsh-worktree-surface={sessionId}>
-        <Icon as={CircleTree} size={14} />
-        <div className="dshp-worktree__surface-content">
-          <span className="dshp-worktree__surface-label">
-            {label}
-            {creating && `...`}
-          </span>
-          {bound && state.log.length > 0 && (
-            <button type="button" className={`${'dshp-worktree__action'} ${'dshp-worktree__action--log'}`} onClick={() => setLogOpen(value => !value)}>
-              {text('progressViewLogs')}
-            </button>
+        <div className="dshp-worktree__surface-bar" data-dsh-worktree-surface={sessionId}>
+          <Icon as={CircleTree} size={14} />
+          <div className="dshp-worktree__surface-content">
+            <span className="dshp-worktree__surface-label">
+              {label}
+              {creating && `...`}
+            </span>
+            {bound && state.log.length > 0 && (
+              <button type="button" className={`${'dshp-worktree__action'} ${'dshp-worktree__action--log'}`} onClick={() => setLogOpen(value => !value)}>
+                {text('progressViewLogs')}
+              </button>
+            )}
+          </div>
+          <span className="dshp-worktree__spacer" />
+          {bound && !deleting && (
+            <>
+              <button type="button" className="dshp-worktree__action" onClick={() => patchSession(sessionId, { checkoutOpen: true })}>
+                {text('surfaceCheckout')}
+              </button>
+              <button type="button" className={`${'dshp-worktree__action'} ${'dshp-worktree__action--danger'}`} onClick={() => patchSession(sessionId, { abandonOpen: true })}>
+                {text('surfaceAbandon')}
+              </button>
+            </>
           )}
         </div>
-        <span className="dshp-worktree__spacer" />
-        {bound && !deleting && (
-          <>
-            <button type="button" className="dshp-worktree__action" onClick={() => patchSession(sessionId, { checkoutOpen: true })}>
-              {text('surfaceCheckout')}
-            </button>
-            <button type="button" className={`${'dshp-worktree__action'} ${'dshp-worktree__action--danger'}`} onClick={() => patchSession(sessionId, { abandonOpen: true })}>
-              {text('surfaceAbandon')}
-            </button>
-          </>
-        )}
-      </div>
-      <Logs log={state.log} open={logOpen} />
+        <Logs log={state.log} open={logOpen} />
       </div>
     </div>
   )

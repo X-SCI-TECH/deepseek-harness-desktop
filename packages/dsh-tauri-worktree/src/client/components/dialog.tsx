@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import type { WorkspacesRuntime, WorktreeDialogProps } from '../types'
+import { useMountStyle } from 'dsh-tauri-ui/client'
 /**
  * dialog.tsx — 检出本地 / 放弃更改 两个模态框（shell.overlay 条目）。
  *
@@ -16,13 +17,12 @@ import type { WorkspacesRuntime, WorktreeDialogProps } from '../types'
  * 职责拆分：slot 注册在 register/dialog.ts，工作区顶部插入逻辑在 lib/worktree.ts。
  */
 import { useEffect } from 'react'
-import { useMountStyle } from 'dsh-tauri-ui/client'
 import { DIALOG_STYLE_ID } from '../constants'
-import dialogStyle from './dialog.cssr'
 import { text, useLocale } from '../locales'
 import { applyCheckout, applyDiscard } from '../service/actions'
 import { patchSession, useWorktreeSession } from '../store'
 import { resolveWorkspaceTopInsertion } from '../utils/worktree'
+import dialogStyle from './dialog.cssr'
 
 /**
  * 检出本地 / 放弃 弹窗组件（读 store 的 checkoutOpen / abandonOpen 决定渲染哪个）。
@@ -59,27 +59,27 @@ export function WorktreeDialog({ useSessions, workspacesRuntime, sessionsRuntime
   return (
     <div className="dshp-worktree">
       <div className="dshp-worktree__modal" data-dsh-worktree-dialog="1" onClick={closeAll}>
-      {checkout && (
-        <CheckoutDialog
-          sessionId={sessionId}
-          worktreeKey={state.worktreeKey}
-          projectPath={state.projectPath}
-          branchName={state.branchName}
-          error={state.error}
-          workspacesRuntime={workspacesRuntime}
-          sessionsRuntime={sessionsRuntime}
-          onCancel={closeAll}
-        />
-      )}
-      {abandon && (
-        <AbandonDialog
-          sessionId={sessionId}
-          worktreeKey={state.worktreeKey}
-          error={state.error}
-          workspacesRuntime={workspacesRuntime}
-          onCancel={closeAll}
-        />
-      )}
+        {checkout && (
+          <CheckoutDialog
+            sessionId={sessionId}
+            worktreeKey={state.worktreeKey}
+            projectPath={state.projectPath}
+            branchName={state.branchName}
+            error={state.error}
+            workspacesRuntime={workspacesRuntime}
+            sessionsRuntime={sessionsRuntime}
+            onCancel={closeAll}
+          />
+        )}
+        {abandon && (
+          <AbandonDialog
+            sessionId={sessionId}
+            worktreeKey={state.worktreeKey}
+            error={state.error}
+            workspacesRuntime={workspacesRuntime}
+            onCancel={closeAll}
+          />
+        )}
       </div>
     </div>
   )

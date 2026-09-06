@@ -64,8 +64,10 @@ interface SessionWatch {
   activityTimer?: ReturnType<typeof setTimeout>
   /** 上次已推送的投影载荷（用于深比较去重，避免无变化空转发）。 */
   lastPayload?: Record<string, unknown>
-  /** 上次白名单投影值引用（浅拷贝，值引用来自会话源对象）。用于「只对白名单字段做无变化检测」：
-   *  non-白名单字段 churn 造出新的 summary/snapshot 对象时，值引用仍一致 ⇒ 载荷必不变，免深克隆。 */
+  /**
+   * 上次白名单投影值引用（浅拷贝，值引用来自会话源对象）。用于「只对白名单字段做无变化检测」：
+   *  non-白名单字段 churn 造出新的 summary/snapshot 对象时，值引用仍一致 ⇒ 载荷必不变，免深克隆。
+   */
   lastProjected?: Record<string, unknown>
   /** 上次计算载荷时的输入引用（summary / snapshot / activity）。引用不变 ⇒ 载荷必不变。 */
   lastInput?: {
