@@ -17,7 +17,8 @@ import {
   setPetSize,
   showPet,
 } from '../service/pet'
-import { beginPetStatusFetch, commitPetStatusFetch, getPetUiSnapshot, setPetStatus, subscribePetUi } from '../store'
+import { beginPetStatusFetch, commitPetStatusFetch, getPetUiSnapshot, setPetsAvailable, setPetStatus, subscribePetUi } from '../store'
+import { hasAvailablePets } from '../utils/availability'
 import { progressPercent, resolvePresetCardAction } from '../utils/preset-card'
 import petSettingsStyle from './pet-settings.cssr'
 
@@ -152,6 +153,8 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
       const [nextPresetPets, nextStatus] = await Promise.all([fetchPresetPets(), fetchPetStatus()])
       cachedPresetPets = nextPresetPets
       setPresetPets(nextPresetPets)
+      // 下载完成会改变可用性（未安装→已安装），同步侧栏入口显隐（chat/codex 用缓存清单）。
+      setPetsAvailable(hasAvailablePets(nextPresetPets, cachedChatPets ?? [], cachedCodexPets ?? []))
       const revision = beginPetStatusFetch()
       commitPetStatusFetch(revision, nextStatus)
       setPetStatus(nextStatus)
@@ -203,6 +206,8 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
         setChatPets(nextChatPets)
         setCodexPets(nextCodexPets)
         setPresetPets(nextPresetPets)
+        // 同步侧栏入口显隐：无任何可用宠物（全新安装）时隐藏入口图标。
+        setPetsAvailable(hasAvailablePets(nextPresetPets, nextChatPets, nextCodexPets))
         // 跨挂载恢复进行中的下载：清单 phase 标记 downloading/extracting 的项重新轮询，
         // 避免「返回应用再进设置」丢失进度视图、重复点击触发 PET_PRESET_BUSY。
         // 占位进度先写入 downloads，让不确定进度条在第一次轮询返回前立即出现。
@@ -353,7 +358,11 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
     setError(null)
     try {
       await importPet(file.name, await readAsBase64(file))
-      setCodexPets(await fetchPetList('codex'))
+      const nextCodexPets = await fetchPetList('codex')
+      cachedCodexPets = nextCodexPets
+      setCodexPets(nextCodexPets)
+      // 导入成功后本地宠物集合变化，同步侧栏入口显隐。
+      setPetsAvailable(hasAvailablePets(cachedPresetPets ?? [], cachedChatPets ?? [], nextCodexPets))
     }
     catch (importError) {
       console.error('[dsh-tauri-pet] import failed:', importError)
