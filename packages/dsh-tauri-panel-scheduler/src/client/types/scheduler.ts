@@ -5,17 +5,21 @@
 import type { Translate } from './protocol'
 
 /** 计划类型（与 shared/constants 一致）。 */
-export type ScheduleKind = 'daily' | 'interval' | 'workdays' | 'weekly'
+export type ScheduleKind = 'once' | 'hourly' | 'daily' | 'interval' | 'workdays' | 'weekly' | 'monthly' | 'custom'
 
 /** 星期枚举。 */
 export type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU'
 
 /** 调度计划（客户端表单形状）。 */
 export type ScheduleForm
-  = | { kind: 'daily', time: string }
-    | { kind: 'interval', everyMinutes: number }
+  = | { kind: 'once', at: string }
+    | { kind: 'hourly', minute: number }
+    | { kind: 'daily', time: string }
+    | { kind: 'interval', everyMinutes: number, anchor?: string }
     | { kind: 'workdays', time: string }
     | { kind: 'weekly', weekdays: Weekday[], time: string }
+    | { kind: 'monthly', day: number, time: string }
+    | { kind: 'custom', everyDays: number, anchor?: string, time: string }
 
 /** 权限选项（宿主 permissionPresets 服务提供，含 read-only / workspace-write / danger-full-access）。 */
 export interface PermissionOption {
@@ -78,7 +82,7 @@ export interface TaskView {
 }
 
 /** 执行状态。 */
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled'
+export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted' | 'skipped' | 'cancelled'
 
 /** 执行记录视图。 */
 export interface RunView {

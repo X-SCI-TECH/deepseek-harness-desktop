@@ -59,7 +59,17 @@ export function SchedulerPanel({ t, onViaChat }: SchedulerPanelProps): ReactElem
       void refreshScheduler(false)
       setNow(Date.now())
     }, REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(timer)
+    const refreshOnResume = (): void => {
+      if (document.visibilityState === 'visible')
+        void refreshScheduler(false)
+    }
+    document.addEventListener('visibilitychange', refreshOnResume)
+    window.addEventListener('focus', refreshOnResume)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshOnResume)
+      window.removeEventListener('focus', refreshOnResume)
+    }
   }, [])
 
   const filtered = search

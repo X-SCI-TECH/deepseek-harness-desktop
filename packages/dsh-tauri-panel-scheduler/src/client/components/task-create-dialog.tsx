@@ -58,13 +58,21 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, index) => {
 /** 间隔时长选项（分钟）。 */
 const INTERVAL_OPTIONS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440]
 
-const SCHEDULE_KINDS = ['daily', 'interval', 'workdays', 'weekly'] as const
+const SCHEDULE_KINDS = ['once', 'hourly', 'daily', 'interval', 'workdays', 'weekly', 'monthly', 'custom'] as const
 
 /** 各计划模式的默认参数（切换模式时初始化，保证字段齐整）。 */
 function defaultScheduleFor(kind: ScheduleForm['kind']): ScheduleForm {
   switch (kind) {
+    case 'once':
+      return { kind: 'once', at: new Date(Date.now() + 60 * 60 * 1000).toISOString() }
+    case 'hourly':
+      return { kind: 'hourly', minute: 0 }
     case 'interval':
       return { kind: 'interval', everyMinutes: 30 }
+    case 'monthly':
+      return { kind: 'monthly', day: 1, time: '09:00' }
+    case 'custom':
+      return { kind: 'custom', everyDays: 2, time: '09:00' }
     case 'weekly':
       return { kind: 'weekly', weekdays: ['MO'], time: '09:00' }
     case 'workdays':
@@ -144,9 +152,7 @@ export function TaskCreateDialog({ t, options, onClose, taskId, initial }: TaskC
   }
 
   const scheduleKind = form.schedule.kind
-  const currentTime = (form.schedule.kind === 'daily' || form.schedule.kind === 'workdays' || form.schedule.kind === 'weekly')
-    ? form.schedule.time
-    : '09:00'
+  const currentTime = ('time' in form.schedule) ? form.schedule.time : '09:00'
   const currentEveryMinutes = form.schedule.kind === 'interval' ? form.schedule.everyMinutes : 30
   const currentWeekday: Weekday = form.schedule.kind === 'weekly' ? (form.schedule.weekdays[0] ?? 'MO') : 'MO'
 
@@ -218,48 +224,67 @@ export function TaskCreateDialog({ t, options, onClose, taskId, initial }: TaskC
                 ))}
               </select>
 
-              {scheduleKind === 'interval'
-                ? (
-                    <select
-                      className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
-                      value={currentEveryMinutes}
-                      aria-label={t('scheduleEveryMinutes')}
-                      onChange={event => setSchedule({ kind: 'interval', everyMinutes: Number(event.target.value) })}
-                    >
-                      {INTERVAL_OPTIONS.map(minutes => <option key={minutes} value={minutes}>{`${minutes} ${t('minuteShort')}`}</option>)}
-                    </select>
-                  )
-                : scheduleKind === 'weekly'
-                  ? (
-                      <>
-                        <select
-                          className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
-                          value={currentWeekday}
-                          aria-label={t('scheduleWeekdays')}
-                          onChange={event => setSchedule({ kind: 'weekly', weekdays: [event.target.value as Weekday], time: currentTime })}
-                        >
-                          {WEEKDAYS.map(day => <option key={day} value={day}>{t(WEEKDAY_KEYS[day])}</option>)}
-                        </select>
-                        <select
-                          className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
-                          value={currentTime}
-                          aria-label={t('scheduleTime')}
-                          onChange={event => setSchedule({ ...form.schedule, time: event.target.value } as ScheduleForm)}
-                        >
-                          {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                        </select>
-                      </>
-                    )
-                  : (
-                      <select
-                        className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
-                        value={currentTime}
-                        aria-label={t('scheduleTime')}
-                        onChange={event => setSchedule({ ...form.schedule, time: event.target.value } as ScheduleForm)}
-                      >
-                        {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                      </select>
-                    )}
+              {scheduleKind === 'once'
+                ? <input className="dshp-scheduler__input dshp-scheduler__schedule-once" type="datetime-local" value={String(form.schedule.at).slice(0, 16)} onChange={event => setSchedule({ kind: 'once', at: new Date(event.target.value).toISOString() })} />
+                : scheduleKind === 'hourly'
+                  ? <select className="dshp-scheduler__input" value={form.schedule.minute} onChange={event => setSchedule({ kind: 'hourly', minute: Number(event.target.value) })}>{Array.from({ length: 60 }, (_, minute) => <option key={minute} value={minute}>{`: ${String(minute).padStart(2, '0')}`}</option>)}</select>
+                  : scheduleKind === 'monthly'
+                    ? (
+                        <>
+                          <input className="dshp-scheduler__input dshp-scheduler__inline-select--auto" type="number" min={1} max={31} value={form.schedule.kind === 'monthly' ? form.schedule.day : 1} aria-label={t('scheduleMonthDay')} onChange={event => setSchedule({ kind: 'monthly', day: Number(event.target.value), time: currentTime })} />
+                          <select className="dshp-scheduler__input dshp-scheduler__select-input dshp-scheduler__inline-select--auto" value={currentTime} aria-label={t('scheduleTime')} onChange={event => setSchedule({ kind: 'monthly', day: form.schedule.kind === 'monthly' ? form.schedule.day : 1, time: event.target.value })}>{TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}</select>
+                        </>
+                      )
+                    : scheduleKind === 'custom'
+                      ? (
+                          <>
+                            <input className="dshp-scheduler__input dshp-scheduler__inline-select--auto" type="number" min={1} max={366} value={form.schedule.kind === 'custom' ? form.schedule.everyDays : 1} aria-label={t('scheduleEveryDays')} onChange={event => setSchedule({ kind: 'custom', everyDays: Number(event.target.value), time: currentTime })} />
+                            <span>{t('dayShort')}</span>
+                            <select className="dshp-scheduler__input dshp-scheduler__select-input dshp-scheduler__inline-select--auto" value={currentTime} aria-label={t('scheduleTime')} onChange={event => setSchedule({ kind: 'custom', everyDays: form.schedule.kind === 'custom' ? form.schedule.everyDays : 1, time: event.target.value })}>{TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}</select>
+                          </>
+                        )
+                      : scheduleKind === 'interval'
+                        ? (
+                            <select
+                              className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
+                              value={currentEveryMinutes}
+                              aria-label={t('scheduleEveryMinutes')}
+                              onChange={event => setSchedule({ kind: 'interval', everyMinutes: Number(event.target.value), anchor: form.schedule.kind === 'interval' ? form.schedule.anchor : undefined })}
+                            >
+                              {INTERVAL_OPTIONS.map(minutes => <option key={minutes} value={minutes}>{`${minutes} ${t('minuteShort')}`}</option>)}
+                            </select>
+                          )
+                        : scheduleKind === 'weekly'
+                          ? (
+                              <>
+                                <select
+                                  className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
+                                  value={currentWeekday}
+                                  aria-label={t('scheduleWeekdays')}
+                                  onChange={event => setSchedule({ kind: 'weekly', weekdays: [event.target.value as Weekday], time: currentTime })}
+                                >
+                                  {WEEKDAYS.map(day => <option key={day} value={day}>{t(WEEKDAY_KEYS[day])}</option>)}
+                                </select>
+                                <select
+                                  className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
+                                  value={currentTime}
+                                  aria-label={t('scheduleTime')}
+                                  onChange={event => setSchedule({ ...form.schedule, time: event.target.value } as ScheduleForm)}
+                                >
+                                  {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                                </select>
+                              </>
+                            )
+                          : (
+                              <select
+                                className={`${'dshp-scheduler__input'} ${'dshp-scheduler__select-input'} ${'dshp-scheduler__inline-select--auto'}`}
+                                value={currentTime}
+                                aria-label={t('scheduleTime')}
+                                onChange={event => setSchedule({ ...form.schedule, time: event.target.value } as ScheduleForm)}
+                              >
+                                {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                              </select>
+                            )}
             </div>
           </div>
 

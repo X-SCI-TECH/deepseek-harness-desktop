@@ -98,7 +98,11 @@ export class SchedulerEngine {
       this.running.delete(task.id)
       // 无论成败都推进到下次触发（失败也会按计划重试，避免卡死在同一次）。
       const now = Date.now()
-      const next = nextOccurrence(task.schedule, now)
+      // Fixed-anchor schedules advance from the prior planned occurrence, not completion time.
+      const previous = task.nextRunAt ? new Date(task.nextRunAt).getTime() : now
+      const next = task.schedule.kind === 'interval' || task.schedule.kind === 'custom'
+        ? nextOccurrence(task.schedule, previous)
+        : nextOccurrence(task.schedule, now)
       await updateTaskTimes(task.id, {
         lastRunAt: task.lastRunAt,
         nextRunAt: next === undefined ? undefined : new Date(next).toISOString(),

@@ -76,6 +76,7 @@ export function TaskCard({ task, t, describe, nextRun, paused, onEdit }: TaskCar
   }
 
   const items: MenuEntry[] = [
+    { id: 'edit', label: t('edit'), icon: <Icon as={CirclePlay} /> },
     { id: 'run', label: t('runNow'), icon: <Icon as={CirclePlay} /> },
     { id: 'toggle', label: paused ? t('resume') : t('pause'), icon: <Icon as={CirclePause} /> },
     { type: 'separator', id: 'sep' },
@@ -133,7 +134,9 @@ export function TaskCard({ task, t, describe, nextRun, paused, onEdit }: TaskCar
         onClose={() => setMenuOpen(false)}
         onSelect={(id) => {
           setMenuOpen(false)
-          if (id === 'run')
+          if (id === 'edit')
+            onEdit(task)
+          else if (id === 'run')
             onRun()
           else if (id === 'toggle')
             onToggle()
