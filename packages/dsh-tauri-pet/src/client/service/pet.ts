@@ -13,6 +13,7 @@ import {
   CMD_SET_PET_ENABLED,
   CMD_SET_PET_SIZE,
   CMD_SHOW_PET,
+  CMD_UPDATE_PRESET_PET,
 } from '../constants'
 
 export function fetchPetStatus(): Promise<PetStatus> {
@@ -59,6 +60,14 @@ export function fetchPresetPets(): Promise<PresetPetItem[]> {
 /** 开始下载并安装预设宠物（后台执行；进度用 fetchPresetDownloadProgress 轮询）。 */
 export function downloadPresetPet(id: string): Promise<void> {
   return invokeBridgedTauri<void>(CMD_DOWNLOAD_PRESET_PET, { id })
+}
+
+/**
+ * 更新已安装的预设宠物（后台执行；进度用 fetchPresetDownloadProgress 轮询）。
+ * 若宠物正在使用，宿主会先强制停用，更新结束后自动重新启用。
+ */
+export function updatePresetPet(id: string): Promise<void> {
+  return invokeBridgedTauri<void>(CMD_UPDATE_PRESET_PET, { id })
 }
 
 /** 查询预设宠物下载进度。 */
