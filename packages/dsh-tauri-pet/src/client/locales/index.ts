@@ -39,6 +39,8 @@ const DICT_ZH: Record<LocaleKey, string> = {
   tabCodexDesc: '从 Codex 或压缩包中导入 Codex 宠物（支持 .zip 文件）',
   tabInstalledDesc: '宠物会管理对话串，并突出显示需要关注的事项',
   toggleFailed: '切换桌宠窗口失败',
+  update: '更新',
+  updateFailed: '更新预设宠物失败',
   wakePet: '唤醒宠物',
 }
 
@@ -69,6 +71,8 @@ const DICT_EN: Record<LocaleKey, string> = {
   tabCodexDesc: 'Import Codex pets from Codex or archives (.zip files supported)',
   tabInstalledDesc: 'Pets manage your conversation threads and highlight items that need attention',
   toggleFailed: 'Failed to toggle the pet window',
+  update: 'Update',
+  updateFailed: 'Failed to update preset pet',
   wakePet: 'Wake pet',
 }
 

@@ -29,6 +29,20 @@ export function resolvePresetCardAction(
   return 'download'
 }
 
+/**
+ * 是否显示「更新」按钮：已安装、清单提示可更新、且不在下载/解压中。
+ * 更新按钮位于主动作（已选/启用）左侧；下载中时隐藏，避免与替换安装冲突。
+ */
+export function resolvePresetCardUpdate(
+  item: Pick<PresetPetItem, 'installed' | 'update_available' | 'phase'>,
+  progress: PresetDownloadProgress | null | undefined,
+): boolean {
+  if (!item.installed || item.update_available !== true)
+    return false
+  const phase = progress?.phase ?? item.phase
+  return phase !== 'downloading' && phase !== 'extracting'
+}
+
 /** 把下载进度渲染成百分比；未知总量（下载早期/解压中）返回 null 表示不确定进度。 */
 export function progressPercent(progress: PresetDownloadProgress): number | null {
   if (progress.total > 0)

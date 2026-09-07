@@ -32,6 +32,8 @@ export interface PresetPetItem {
   installed: boolean
   name: string
   size_mb?: number | null
+  /** 已安装且清单 ref 与安装记录不同（或无记录）→ 可更新。 */
+  update_available?: boolean
   /** 当前下载阶段（idle|downloading|extracting|done|failed），跨挂载恢复下载中视图用。 */
   phase?: PresetDownloadProgress['phase'] | null
 }
@@ -111,4 +113,6 @@ export type LocaleKey
     | 'tabCodexDesc'
     | 'tabInstalledDesc'
     | 'toggleFailed'
+    | 'update'
+    | 'updateFailed'
     | 'wakePet'

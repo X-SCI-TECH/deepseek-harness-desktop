@@ -196,6 +196,12 @@ export default c([
     from: { transform: 'translateX(-100%)' },
     to: { transform: 'translateX(250%)' },
   }),
+  c('.dshp-pet__card-actions', {
+    flex: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  }),
   c('.dshp-pet__card-action', {
     flex: 'none',
     appearance: 'none',
@@ -211,6 +217,10 @@ export default c([
     c('&:hover:not(:disabled)', { background: 'var(--dsw-alias-interactive-bg-hover)' }),
     c('&:disabled', { opacity: '0.4', cursor: 'default' }),
   ]),
+  // 「更新」按钮（已选/启用左侧）：弱化描边次级样式，hover 同主动作。
+  c('.dshp-pet__card-action.dshp-pet__card-actionUpdate', {
+    color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
+  }),
   c('.dshp-pet__card-action.dshp-pet__card-actionActive', {
     borderColor: 'var(--dsw-alias-brand-primary)',
     color: 'var(--dsw-alias-brand-primary)',

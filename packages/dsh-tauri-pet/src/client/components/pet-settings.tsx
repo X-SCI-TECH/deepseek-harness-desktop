@@ -16,10 +16,11 @@ import {
   setPetEnabled,
   setPetSize,
   showPet,
+  updatePresetPet,
 } from '../service/pet'
 import { beginPetStatusFetch, commitPetStatusFetch, getPetUiSnapshot, setPetsAvailable, setPetStatus, subscribePetUi } from '../store'
 import { hasAvailablePets } from '../utils/availability'
-import { progressPercent, resolvePresetCardAction } from '../utils/preset-card'
+import { progressPercent, resolvePresetCardAction, resolvePresetCardUpdate } from '../utils/preset-card'
 import petSettingsStyle from './pet-settings.cssr'
 
 /** 预设宠物下载轮询间隔（ms）。 */
@@ -43,12 +44,17 @@ interface PetCardProps {
   sizeLabel?: string
   thumbnail?: string
   thumbnailType?: 'gif' | 'spritesheet'
+  /** 显示「更新」按钮（已安装且清单提示可更新；位于主动作左侧）。 */
+  updateDisabled?: boolean
+  updateLabel?: string
+  onUpdate?: () => void
 }
 
 function PetCard(props: PetCardProps): ReactElement {
   const actionClassName = props.active
     ? 'dshp-pet__card-action dshp-pet__card-actionActive'
     : 'dshp-pet__card-action'
+  const updateClassName = 'dshp-pet__card-action dshp-pet__card-actionUpdate'
   const thumbnailClassName = props.thumbnailType === 'spritesheet'
     ? 'dshp-pet__card-thumb dshp-pet__card-thumbSprite'
     : 'dshp-pet__card-thumb'
@@ -88,14 +94,28 @@ function PetCard(props: PetCardProps): ReactElement {
             )
           : null}
       </span>
-      <button
-        type="button"
-        className={actionClassName}
-        disabled={props.disabled}
-        onClick={props.onAction}
-      >
-        {props.actionLabel}
-      </button>
+      <span className="dshp-pet__card-actions">
+        {props.onUpdate && props.updateLabel !== undefined
+          ? (
+              <button
+                type="button"
+                className={updateClassName}
+                disabled={props.disabled || props.updateDisabled === true}
+                onClick={props.onUpdate}
+              >
+                {props.updateLabel}
+              </button>
+            )
+          : null}
+        <button
+          type="button"
+          className={actionClassName}
+          disabled={props.disabled}
+          onClick={props.onAction}
+        >
+          {props.actionLabel}
+        </button>
+      </span>
     </div>
   )
 }
@@ -120,6 +140,14 @@ export function presetCardAction(
   progress: PresetDownloadProgress | null | undefined,
 ): 'download' | 'downloading' | 'enable' | 'selected' {
   return resolvePresetCardAction(item, active, progress)
+}
+
+/** 预设宠物卡片「更新」按钮显隐（已安装且可更新，且非下载中），见 utils/preset-card。 */
+export function presetCardUpdate(
+  item: Pick<PresetPetItem, 'installed' | 'update_available' | 'phase'>,
+  progress: PresetDownloadProgress | null | undefined,
+): boolean {
+  return resolvePresetCardUpdate(item, progress)
 }
 
 export function PetSettings(props: PetSettingsProps): ReactElement {
@@ -261,6 +289,30 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
     }
   }
 
+  /**
+   * 更新已安装的预设宠物：走与首次下载完全相同的下载/解压流程（同一进度轮询）。
+   * 宿主侧在宠物正在使用时先强制停用，更新结束后自动重新启用（前端无需处理）。
+   */
+  async function startUpdate(id: string): Promise<void> {
+    if (busy)
+      return
+    setBusy(true)
+    setError(null)
+    try {
+      await updatePresetPet(id)
+      pollPresetDownload(id)
+    }
+    catch (updateError) {
+      if (String(updateError).includes('PET_PRESET_BUSY'))
+        pollPresetDownload(id)
+      else
+        setError(text('updateFailed'))
+    }
+    finally {
+      setBusy(false)
+    }
+  }
+
   /** 启用预设宠物：选择它，并确保桌宠被唤醒（自动触发唤醒）。 */
   async function enablePreset(id: string): Promise<void> {
     if (busy || active === id)
@@ -383,6 +435,7 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
                 const progress = downloads[item.id] ?? null
                 const action = presetCardAction(item, active, progress)
                 const downloading = action === 'downloading'
+                const canUpdate = resolvePresetCardUpdate(item, progress)
                 return (
                   <PetCard
                     key={item.id}
@@ -400,6 +453,9 @@ export function PetSettings(props: PetSettingsProps): ReactElement {
                       else if (action === 'download')
                         void startDownload(item.id)
                     }}
+                    updateLabel={canUpdate ? text('update') : undefined}
+                    updateDisabled={busy || downloading}
+                    onUpdate={canUpdate ? () => { void startUpdate(item.id) } : undefined}
                   />
                 )
               })}

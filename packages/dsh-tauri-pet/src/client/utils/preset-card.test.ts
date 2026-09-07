@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { progressPercent, resolvePresetCardAction } from './preset-card'
+import { progressPercent, resolvePresetCardAction, resolvePresetCardUpdate } from './preset-card'
 
 function progress(phase: PresetDownloadPhase, received = 0, total = 0): { phase: PresetDownloadPhase, received: number, total: number, error?: string | null } {
   return { phase, received, total }
@@ -42,6 +42,29 @@ describe('resolvePresetCardAction', () => {
     expect(resolvePresetCardAction(maid, 'other', null)).toBe('download')
     expect(resolvePresetCardAction(maid, 'other', progress('done'))).toBe('download')
     expect(resolvePresetCardAction(maid, 'other', progress('failed'))).toBe('download')
+  })
+})
+
+describe('resolvePresetCardUpdate', () => {
+  const maid = { id: 'maid-deepseek-whale', installed: true, update_available: true, phase: 'idle' as const }
+
+  it('已安装且可更新 → 显示更新按钮', () => {
+    expect(resolvePresetCardUpdate(maid, null)).toBe(true)
+    expect(resolvePresetCardUpdate(maid, progress('done'))).toBe(true)
+  })
+
+  it('未安装 / 清单未提示更新 → 不显示', () => {
+    expect(resolvePresetCardUpdate({ ...maid, installed: false }, null)).toBe(false)
+    expect(resolvePresetCardUpdate({ ...maid, update_available: false }, null)).toBe(false)
+    expect(resolvePresetCardUpdate({ ...maid, update_available: undefined }, null)).toBe(false)
+  })
+
+  it('下载/解压中 → 隐藏更新按钮（避免与替换安装冲突）', () => {
+    expect(resolvePresetCardUpdate(maid, progress('downloading'))).toBe(false)
+    expect(resolvePresetCardUpdate(maid, progress('extracting'))).toBe(false)
+    // 清单 phase 兜底（跨挂载恢复下载中视图）。
+    expect(resolvePresetCardUpdate({ ...maid, phase: 'downloading' }, null)).toBe(false)
+    expect(resolvePresetCardUpdate({ ...maid, phase: 'extracting' }, null)).toBe(false)
   })
 })
 
