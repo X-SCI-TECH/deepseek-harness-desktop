@@ -54,6 +54,11 @@ export function postMcpSave(body: Record<string, unknown>): Promise<Types.McpSav
   return fetch(`${baseURL}/mcp/save`, { method: 'POST', body })
 }
 
+/** @method post 检查 MCP 服务器连通性。 */
+export function postMcpCheck(body: { id: string }): Promise<Types.McpConnectivityResponse> {
+  return fetch(`${baseURL}/mcp/check`, { method: 'POST', body })
+}
+
 /** @method post 启用/禁用 MCP 服务器。 */
 export function postMcpToggle(body: Types.PostMcpToggleBody): Promise<Types.ActionResult> {
   return fetch(`${baseURL}/mcp/toggle`, { method: 'POST', body })
