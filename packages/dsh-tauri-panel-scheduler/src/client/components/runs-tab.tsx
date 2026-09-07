@@ -19,6 +19,7 @@ function statusKey(t: Translate, status: RunView['status']): string {
   switch (status) {
     case 'succeeded': return t('succeeded')
     case 'failed': return t('failed')
+    case 'interrupted': return t('interrupted')
     case 'skipped': return t('skipped')
     case 'cancelled': return t('cancelled')
     case 'queued': return t('queued')

@@ -79,8 +79,9 @@ export async function recoverInterruptedRuns(): Promise<void> {
     const runs = await readRuns()
     let changed = false
     for (const run of runs) {
+      // queued work was never started and can be resumed; only started work is interrupted.
       if (run.status === 'running') {
-        run.status = 'failed'
+        run.status = 'interrupted'
         run.finishedAt = new Date().toISOString()
         run.error = run.error || 'host_interrupted'
         changed = true

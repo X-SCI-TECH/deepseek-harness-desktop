@@ -30,11 +30,14 @@ export interface TaskInput {
 export function buildTask(input: TaskInput): SchedulerTask {
   const now = new Date()
   const schedule = input.schedule
-  // 时间戳缺省用宿主本地时区；interval 无时间字段。
-  const timeZone = typeof schedule.timeZone === 'string' && schedule.timeZone
-    ? schedule.timeZone
+  // 时间戳缺省用宿主本地时区；interval/custom 以创建时刻作为固定锚点。
+  const anchoredSchedule = (schedule.kind === 'interval' || schedule.kind === 'custom') && !schedule.anchor
+    ? { ...schedule, anchor: now.toISOString() }
+    : schedule
+  const timeZone = typeof anchoredSchedule.timeZone === 'string' && anchoredSchedule.timeZone
+    ? anchoredSchedule.timeZone
     : localTimeZone()
-  const normalized: SchedulerSchedule = { ...schedule, timeZone } as SchedulerSchedule
+  const normalized: SchedulerSchedule = { ...anchoredSchedule, timeZone } as SchedulerSchedule
   const next = nextOccurrence(normalized, now.getTime())
   return {
     id: `task-${randomUUID()}`,

@@ -30,11 +30,16 @@ export function createToolSet(engine: SchedulerEngine): any[] {
           prompt: { type: 'string', description: 'The task instruction run in the scheduled session.' },
           schedule: {
             type: 'object',
-            description: 'Schedule spec: { kind: "daily"|"interval"|"workdays"|"weekly", ... }.',
+            description: 'Schedule spec: once/hourly/daily/interval/workdays/weekly/monthly/custom.',
             properties: {
-              kind: { type: 'string', enum: ['daily', 'interval', 'workdays', 'weekly'] },
+              kind: { type: 'string', enum: ['once', 'hourly', 'daily', 'interval', 'workdays', 'weekly', 'monthly', 'custom'] },
               time: { type: 'string', description: '"HH:mm" for daily/workdays/weekly.' },
               everyMinutes: { type: 'number', description: 'Interval minutes for kind=interval.' },
+              everyDays: { type: 'number', description: 'Interval days for kind=custom.' },
+              anchor: { type: 'string', description: 'ISO anchor for fixed interval/custom recurrence.' },
+              at: { type: 'string', description: 'ISO timestamp for kind=once.' },
+              minute: { type: 'number', description: 'Minute of hour for kind=hourly.' },
+              day: { type: 'number', description: 'Day of month for kind=monthly.' },
               weekdays: { type: 'array', items: { type: 'string' }, description: '["MO","TU",...] for kind=weekly.' },
             },
             required: ['kind'],
