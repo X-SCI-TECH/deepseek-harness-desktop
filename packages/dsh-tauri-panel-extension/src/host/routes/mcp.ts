@@ -203,33 +203,63 @@ export function registerMcpRoutes(
   }))
 
   disposers.push(register({
-    kind: 'exact', path: `${API_PREFIX}/mcp/check`,
+    kind: 'exact',
+    path: `${API_PREFIX}/mcp/check`,
     handler: async (request: IncomingMessage, response: ServerResponse) => {
-      if (request.method !== 'POST') { response.writeHead(405, { allow: 'POST' }); response.end(); return }
-      if (!sameOrigin(request)) { sendJson(response, 403, { error: 'untrusted origin' }); return }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'POST' })
+        response.end()
+        return
+      }
+      if (!sameOrigin(request)) {
+        sendJson(response, 403, { error: 'untrusted origin' })
+        return
+      }
       try {
         const body = (await readJsonBody(request)) as { id?: unknown, scope?: unknown }
-        if (typeof body.id !== 'string') { sendJson(response, 400, { error: 'id is required' }); return }
+        if (typeof body.id !== 'string') {
+          sendJson(response, 400, { error: 'id is required' })
+          return
+        }
         const row = listMcp(scopeDir(body.scope)).find(item => item.id === body.id)
-        if (row === undefined) { sendJson(response, 404, { error: 'server row not found' }); return }
+        if (row === undefined) {
+          sendJson(response, 404, { error: 'server row not found' })
+          return
+        }
         sendJson(response, 200, await checkMcpRow(row))
-      } catch (error) { sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) }) }
+      }
+      catch (error) { sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) }) }
     },
   }))
   disposers.push(register({
-    kind: 'exact', path: `${API_PREFIX}/mcp/copy`,
+    kind: 'exact',
+    path: `${API_PREFIX}/mcp/copy`,
     handler: async (request: IncomingMessage, response: ServerResponse) => {
-      if (request.method !== 'POST') { response.writeHead(405, { allow: 'POST' }); response.end(); return }
-      if (!sameOrigin(request)) { sendJson(response, 403, { error: 'untrusted origin' }); return }
+      if (request.method !== 'POST') {
+        response.writeHead(405, { allow: 'POST' })
+        response.end()
+        return
+      }
+      if (!sameOrigin(request)) {
+        sendJson(response, 403, { error: 'untrusted origin' })
+        return
+      }
       try {
         const body = (await readJsonBody(request)) as { id?: unknown, scope?: unknown, toScope?: unknown }
-        if (typeof body.id !== 'string') { sendJson(response, 400, { error: 'id is required' }); return }
+        if (typeof body.id !== 'string') {
+          sendJson(response, 400, { error: 'id is required' })
+          return
+        }
         const source = listMcp(scopeDir(body.scope)).find(item => item.id === body.id)
-        if (source === undefined) { sendJson(response, 404, { error: 'server row not found' }); return }
+        if (source === undefined) {
+          sendJson(response, 404, { error: 'server row not found' })
+          return
+        }
         const scope = readScope(body.toScope)
         const id = upsertMcp(mcpScopeDir(scope, config.profileDirPath, config.dshHomePath), mcpRowToInput(source))
         sendJson(response, 200, { ok: true, id, scope, restartNeeded: true })
-      } catch (error) { sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) }) }
+      }
+      catch (error) { sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) }) }
     },
   }))
   return disposers

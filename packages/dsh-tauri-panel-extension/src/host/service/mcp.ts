@@ -18,14 +18,16 @@
  * directory holding its `cordis.patch.yml`; `listMcpScoped` merges both.
  */
 
+import type { YAMLMap, YAMLSeq } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
 import { join } from 'pathe'
-import { parseDocument, Document, type YAMLMap, type YAMLSeq } from 'yaml'
+import { Document, parseDocument } from 'yaml'
 /** The plugin every managed row instantiates. */
 export const MCP_PLUGIN = '@deepseek-ai/dsh-mcp-client'
 
 /** MCP serverName grammar (dsh-mcp-client's contract). */
-export const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
+export const SERVER_NAME_RE = /^[\w-]{1,32}$/
 
 /** Transport choices the client supports. */
 export type McpTransport = 'stdio' | 'streamable-http'
@@ -72,7 +74,8 @@ export type McpInput = Omit<McpRow, 'disabled'> & { disabled?: boolean }
  * say what is actually wrong and which file to fix.
  */
 function assertPatchParses(path: string, doc: Document): void {
-  if (doc.errors.length === 0) return
+  if (doc.errors.length === 0)
+    return
   const at = String(doc.errors[0].message).split('\n', 1)[0]
   const total = doc.errors.length > 1 ? `, +${doc.errors.length - 1} more` : ''
   throw new Error(
@@ -90,7 +93,8 @@ function loadPatch(dirPath: string): Document {
   const contents = doc.contents as YAMLSeq | null
   // The default-empty file parses as a flow `[]`; the patch layer is
   // human-edited block YAML, so flip the flag before anything appends.
-  if (contents !== null && contents.flow === true && contents.items.length === 0) contents.flow = false
+  if (contents !== null && contents.flow === true && contents.items.length === 0)
+    contents.flow = false
   return doc
 }
 
@@ -120,7 +124,8 @@ function isSeqNode(value: unknown): value is YAMLSeq<YAMLMap> {
 
 /** A patch entry's insert list when it is the anonymous create form. */
 function insertListOf(item: YAMLMap): YAMLSeq<YAMLMap> | undefined {
-  if (item.has('id')) return undefined
+  if (item.has('id'))
+    return undefined
   const node = item.get('insert')
   return isSeqNode(node) ? node : undefined
 }
@@ -129,10 +134,12 @@ function insertListOf(item: YAMLMap): YAMLSeq<YAMLMap> | undefined {
 function mcpRowItems(doc: Document): { node: YAMLMap, list?: YAMLSeq<YAMLMap> }[] {
   const found: { node: YAMLMap, list?: YAMLSeq<YAMLMap> }[] = []
   for (const item of rowSeq(doc).items ?? []) {
-    if (item.get('name') === MCP_PLUGIN) found.push({ node: item })
+    if (item.get('name') === MCP_PLUGIN)
+      found.push({ node: item })
     const list = insertListOf(item)
     for (const row of list?.items ?? []) {
-      if (row.get('name') === MCP_PLUGIN) found.push({ node: row, list })
+      if (row.get('name') === MCP_PLUGIN)
+        found.push({ node: row, list })
     }
   }
   return found
@@ -143,7 +150,7 @@ function rowToMcp(doc: Document, item: YAMLMap): McpRow {
   // config is a YAMLMap node — materialize it before property access.
   const configNode = item.get('config') as unknown
   const plain = (typeof configNode === 'object' && configNode !== null && typeof (configNode as { toJS?: unknown }).toJS === 'function'
-    ? (configNode as { toJS(document: Document): unknown }).toJS(doc)
+    ? (configNode as { toJS: (document: Document) => unknown }).toJS(doc)
     : {}) as Record<string, unknown>
   return {
     id: String(item.get('id') ?? ''),
@@ -160,7 +167,8 @@ function rowToMcp(doc: Document, item: YAMLMap): McpRow {
 }
 
 function isStringMap(value: unknown): value is Record<string, string> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return false
   return Object.values(value).every(entry => typeof entry === 'string')
 }
 
@@ -175,9 +183,11 @@ function managedInsert(doc: Document): YAMLSeq<YAMLMap> {
   const bare: YAMLMap[] = []
   let target: YAMLSeq<YAMLMap> | undefined
   for (const item of seq.items ?? []) {
-    if (item.get('name') === MCP_PLUGIN) bare.push(item)
+    if (item.get('name') === MCP_PLUGIN)
+      bare.push(item)
     const list = insertListOf(item)
-    if (list !== undefined && list.items.some(row => row.get('name') === MCP_PLUGIN)) target ??= list
+    if (list !== undefined && list.items.some(row => row.get('name') === MCP_PLUGIN))
+      target ??= list
   }
   if (target === undefined) {
     const entry = toNode<YAMLMap>({ insert: [] })
@@ -197,10 +207,12 @@ function takenIds(doc: Document): Set<string> {
   const taken = new Set<string>()
   for (const item of rowSeq(doc).items ?? []) {
     const id = String(item.get('id') ?? '')
-    if (id !== '') taken.add(id)
+    if (id !== '')
+      taken.add(id)
     for (const row of insertListOf(item)?.items ?? []) {
       const rowId = String(row.get('id') ?? '')
-      if (rowId !== '') taken.add(rowId)
+      if (rowId !== '')
+        taken.add(rowId)
     }
   }
   return taken
@@ -226,7 +238,8 @@ export function listMcpScoped(profileDirPath: string, dshHomePath: string): McpL
   if (existsSync(join(dshHomePath, 'cordis.patch.yml'))) {
     try {
       globalRows = listMcp(dshHomePath)
-    } catch (error) {
+    }
+    catch (error) {
       globalError = error instanceof Error ? error.message : String(error)
     }
   }
@@ -251,13 +264,17 @@ export function mcpScopeDir(scope: McpScope, profileDirPath: string, dshHomePath
 
 /** Validate one write request; returns the rejection reason or null. */
 export function validateMcpInput(input: McpInput): string | null {
-  if (!SERVER_NAME_RE.test(input.serverName)) return 'serverName must be 1-32 chars of A-Z a-z 0-9 _ -'
+  if (!SERVER_NAME_RE.test(input.serverName))
+    return 'serverName must be 1-32 chars of A-Z a-z 0-9 _ -'
   // The route casts raw JSON to McpInput; a create request may omit `id`.
   const id = input.id ?? ''
-  if (id.includes('/') || id.includes('..')) return 'invalid id'
+  if (id.includes('/') || id.includes('..'))
+    return 'invalid id'
   if (input.transport === 'stdio') {
-    if (input.command === undefined || input.command.trim() === '') return 'stdio transport requires a command'
-  } else if (input.url === undefined || !/^https?:\/\//.test(input.url)) {
+    if (input.command === undefined || input.command.trim() === '')
+      return 'stdio transport requires a command'
+  }
+  else if (input.url === undefined || !/^https?:\/\//.test(input.url)) {
     return 'http transport requires an http(s) url'
   }
   return null
@@ -296,14 +313,17 @@ export function upsertMcp(dirPath: string, input: McpInput): string {
         ...(input.headers !== undefined && Object.keys(input.headers).length > 0 ? { headers: input.headers } : {}),
       }
   const row: Record<string, unknown> = { id, name: MCP_PLUGIN, config }
-  if (input.disabled === true) row.disabled = true
+  if (input.disabled === true)
+    row.disabled = true
 
   const node = toNode<YAMLMap>(row)
   if (existing === undefined) {
     list.add(node)
-  } else if (existing.list !== undefined) {
+  }
+  else if (existing.list !== undefined) {
     existing.list.items.splice(existing.list.items.indexOf(existing.node), 1, node)
-  } else {
+  }
+  else {
     // Bare rows were absorbed above; reaching here means a foreign-shaped row.
     rowSeq(doc).items.splice(rowSeq(doc).items.indexOf(existing.node), 1, node)
   }
@@ -317,8 +337,10 @@ export function setMcpDisabled(dirPath: string, id: string, disabled: boolean): 
   const doc = loadPatch(dirPath)
   managedInsert(doc)
   const hit = mcpRowItems(doc).find(({ node }) => String(node.get('id') ?? '') === id)
-  if (hit === undefined) return false
-  if (disabled) hit.node.set('disabled', true)
+  if (hit === undefined)
+    return false
+  if (disabled)
+    hit.node.set('disabled', true)
   else hit.node.delete('disabled')
   savePatch(dirPath, doc)
   return true
@@ -329,7 +351,8 @@ export function removeMcp(dirPath: string, id: string): boolean {
   const doc = loadPatch(dirPath)
   managedInsert(doc)
   const hit = mcpRowItems(doc).find(({ node }) => String(node.get('id') ?? '') === id)
-  if (hit === undefined || hit.list === undefined) return false
+  if (hit === undefined || hit.list === undefined)
+    return false
   hit.list.items.splice(hit.list.items.indexOf(hit.node), 1)
 
   // An insert entry left with no rows is dead weight; drop it when the
@@ -344,8 +367,10 @@ export function removeMcp(dirPath: string, id: string): boolean {
   return true
 }
 
-/** Rebuild a create request from an existing row (id emptied; identity fields
- *  carried over) — used to copy a row into the other patch layer. */
+/**
+ * Rebuild a create request from an existing row (id emptied; identity fields
+ *  carried over) — used to copy a row into the other patch layer.
+ */
 export function mcpRowToInput(row: McpRow): McpInput {
   return {
     id: '',
@@ -373,14 +398,17 @@ export function mcpRowToInput(row: McpRow): McpInput {
  * process is spawned, so no console-window or side-effect concerns.
  */
 export function resolveCommandOnPath(command: string, pathEnv: string, platform: string = process.platform): boolean {
-  if (command.includes('/') || command.includes('\\')) return existsSync(command)
+  if (command.includes('/') || command.includes('\\'))
+    return existsSync(command)
   const exts = platform === 'win32' ? ['', '.com', '.exe', '.bat', '.cmd'] : ['']
   const separator = platform === 'win32' ? ';' : ':'
   for (const rawDir of pathEnv.split(separator)) {
     const dir = rawDir.trim().replace(/^"|"$/g, '')
-    if (dir === '') continue
+    if (dir === '')
+      continue
     for (const ext of exts) {
-      if (existsSync(join(dir, command + ext))) return true
+      if (existsSync(join(dir, command + ext)))
+        return true
     }
   }
   return false
@@ -399,23 +427,26 @@ export interface McpCheckResult {
  * streamable-http rows get a short GET — any HTTP status proves reachability,
  * since MCP endpoints legitimately answer 405 to plain GETs.
  */
-export async function checkMcpRow(row: McpRow, options: { timeoutMs?: number; pathEnv?: string; platform?: string } = {}): Promise<McpCheckResult> {
+export async function checkMcpRow(row: McpRow, options: { timeoutMs?: number, pathEnv?: string, platform?: string } = {}): Promise<McpCheckResult> {
   const pathEnv = options.pathEnv ?? process.env.PATH ?? ''
   if (row.transport === 'stdio') {
     const command = row.command ?? ''
-    if (command === '') return { ok: false, detail: 'row has no command' }
+    if (command === '')
+      return { ok: false, detail: 'row has no command' }
     return resolveCommandOnPath(command, pathEnv, options.platform)
       ? { ok: true, detail: command }
       : { ok: false, detail: `${command} not found on PATH` }
   }
-  if (row.url === undefined || !/^https?:\/\//.test(row.url)) return { ok: false, detail: 'row has no http url' }
+  if (row.url === undefined || !/^https?:\/\//.test(row.url))
+    return { ok: false, detail: 'row has no http url' }
   try {
     const response = await fetch(row.url, {
       headers: { accept: 'application/json, text/event-stream' },
       signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
     })
     return { ok: true, detail: `HTTP ${response.status}` }
-  } catch (error) {
+  }
+  catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const cause = (error as { cause?: { code?: unknown } }).cause?.code
     return { ok: false, detail: cause !== undefined ? String(cause) : message }

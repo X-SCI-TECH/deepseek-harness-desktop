@@ -334,7 +334,11 @@ export function McpTab({ t }: McpTabProps): ReactElement {
       <div className="dshp-extension__list-head">
         <h3>{t('mcpTab')}</h3>
         {servers !== null && <span className="dshp-extension__count">{servers.length}</span>}
-        <select aria-label={t('scope')} value={scope} onChange={event => setScope(event.target.value as typeof scope)}><option value="all">{t('scopeAll')}</option><option value="global">{t('global')}</option><option value="profile">{t('profile')}</option></select>
+        <select aria-label={t('scope')} value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
+          <option value="all">{t('scopeAll')}</option>
+          <option value="global">{t('global')}</option>
+          <option value="profile">{t('profile')}</option>
+        </select>
         <span className="dshp-extension__spacer" />
         <button type="button" className="dshp-extension__refresh" aria-label={t('view')} title={t('view')} disabled={busy} onClick={() => setReload(value => value + 1)}>
           <Icon as={ArrowRotateRight} />
@@ -356,9 +360,15 @@ export function McpTab({ t }: McpTabProps): ReactElement {
               <p className="dshp-extension__card-desc">
                 {row.transport === 'stdio' ? `${row.command ?? ''} ${(row.args ?? []).join(' ')}` : row.url ?? ''}
               </p>
-              {row.shadowed === true && <p className="dshp-extension__form-error">{t('shadowedByGlobal')}</p>}\n               {row.globalError !== undefined && <p className="dshp-extension__form-error">{row.globalError}</p>}\n               <div className="dshp-extension__card-row">
+              {row.shadowed === true && <p className="dshp-extension__form-error">{t('shadowedByGlobal')}</p>}
+              \n
+              {row.globalError !== undefined && <p className="dshp-extension__form-error">{row.globalError}</p>}
+              \n
+              <div className="dshp-extension__card-row">
                 <span className="dshp-extension__spacer" />
-                <Button variant="ghost" size="sm" disabled={busy || checking === row.id} onClick={() => void checkConnectivity(row)}>{checking === row.id ? t('checkRunning') : t('checkLabel')}</Button>\n                <Button variant="ghost" size="sm" disabled={busy} onClick={() => void doToggle(row)}>{t('toggle')}</Button>
+                <Button variant="ghost" size="sm" disabled={busy || checking === row.id} onClick={() => void checkConnectivity(row)}>{checking === row.id ? t('checkRunning') : t('checkLabel')}</Button>
+                \n
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => void doToggle(row)}>{t('toggle')}</Button>
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => openEdit(row)}>{t('edit')}</Button>
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmId(row.id)}>{t('delete')}</Button>
               </div>
