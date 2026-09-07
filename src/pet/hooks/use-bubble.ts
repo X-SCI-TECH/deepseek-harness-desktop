@@ -245,6 +245,19 @@ export function useBubble(): BubbleHandle {
       previousStatus.set(session.id, current)
       const key = toastKeys.get(session.id)
 
+      // 子代理会话整体静默：状态仍参与聚合与沉淀（previousStatus/armPrune 照常），
+      // 但不创建/更新/关闭任何 toast——子代理任务多且切换频繁，活跃追踪 toast 会
+      // 不断弹出/更新，属于视觉噪音（此前只抑制了「已完成」toast，活跃 toast 仍会弹）。
+      if (session.origin === 'subagent') {
+        if (key !== undefined) {
+          closeToast(session.id)
+        }
+        if (current === undefined && previous !== undefined) {
+          armPrune(session.id)
+        }
+        return
+      }
+
       if (current === undefined) {
         if (key !== undefined)
           closeToast(session.id)
