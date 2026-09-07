@@ -25,7 +25,7 @@ import { createMenuItem, createMenuRoot, createSeparator, positionMenu } from '.
 import { text } from '../locales'
 import { copyText, readClipboard } from '../utils/clipboard'
 import { toast } from '../utils/dialog'
-import { replaceSelection, selectAll, selectionSurface, selectSurface } from '../utils/editable'
+import { pasteInto, replaceSelection, selectAll, selectionSurface, selectSurface } from '../utils/editable'
 import {
   archiveSession,
   archiveUngroupedSessions,
@@ -191,7 +191,7 @@ export function registerContextMenu(ctx: ClientContext): () => void {
         replaceSelection(editable, '')
       }, 'Ctrl+X')
       add(root, text('copy'), () => copyText(selection, 'copied'), 'Ctrl+C')
-      add(root, text('paste'), async () => replaceSelection(editable, await readClipboard()), 'Ctrl+V')
+      add(root, text('paste'), async () => pasteInto(editable, await readClipboard()), 'Ctrl+V')
       split(root)
       add(root, text('selectAll'), () => selectAll(editable), 'Ctrl+A')
       split(root)
