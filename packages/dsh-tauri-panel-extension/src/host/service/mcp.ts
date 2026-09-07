@@ -10,20 +10,28 @@
  * list. Managed rows therefore always sit inside one insert entry, and any
  * legacy bare rows (written before this contract was understood) are
  * absorbed into it on the next write.
+ *
+ * Rows live in one of two patch layers: the profile's own
+ * `cordis.patch.yml`, or the machine-wide `$DSH_HOME/cordis.patch.yml`
+ * (dsh composes it over every profile, after the profile layer — a home row
+ * with the same id wins). The primitives below address one layer via the
+ * directory holding its `cordis.patch.yml`; `listMcpScoped` merges both.
  */
 
-import type { YAMLMap, YAMLSeq } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'pathe'
-import { Document, parseDocument } from 'yaml'
+import { parseDocument, Document, type YAMLMap, type YAMLSeq } from 'yaml'
 /** The plugin every managed row instantiates. */
 export const MCP_PLUGIN = '@deepseek-ai/dsh-mcp-client'
 
 /** MCP serverName grammar (dsh-mcp-client's contract). */
-export const SERVER_NAME_RE = /^[\w-]{1,32}$/
+export const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 /** Transport choices the client supports. */
 export type McpTransport = 'stdio' | 'streamable-http'
+
+/** Which patch layer a row lives in. */
+export type McpScope = 'global' | 'profile'
 
 /** One managed row, as shown to the browser. */
 export interface McpRow {
@@ -39,25 +47,56 @@ export interface McpRow {
   headers?: Record<string, string>
 }
 
+/** One row tagged with its layer. */
+export interface McpRowView extends McpRow {
+  scope: McpScope
+  /** Profile rows only: a global row with the same id composes after this one and wins. */
+  shadowed?: boolean
+}
+
+/** Merged listing across both patch layers. */
+export interface McpListResult {
+  servers: McpRowView[]
+  /** The home layer exists but could not be read; its rows are not shown. */
+  globalError?: string
+}
+
 /** Write request for one server row (id empty = create). */
 export type McpInput = Omit<McpRow, 'disabled'> & { disabled?: boolean }
 
-/** Load the profile patch as a YAML document; `[]` for a missing file. */
-function loadPatch(profileDirPath: string): Document {
-  const path = join(profileDirPath, 'cordis.patch.yml')
+/**
+ * Refuse to touch a patch file the parser could not fully read. parseDocument
+ * parks syntax errors in doc.errors (it does not throw), and the failure only
+ * resurfaces at String(doc) as the internals-leaking "Document with errors
+ * cannot be stringified". Nothing gets written either way, but the banner must
+ * say what is actually wrong and which file to fix.
+ */
+function assertPatchParses(path: string, doc: Document): void {
+  if (doc.errors.length === 0) return
+  const at = String(doc.errors[0].message).split('\n', 1)[0]
+  const total = doc.errors.length > 1 ? `, +${doc.errors.length - 1} more` : ''
+  throw new Error(
+    `配置文件 ${path} 存在 YAML 语法错误（${at}${total}），未写入任何内容，请修复该文件后重试`
+    + ` / YAML syntax error in the patch file (${at}${total}); nothing was written — fix it and retry`,
+  )
+}
+
+/** Load one layer's patch (`<dirPath>/cordis.patch.yml`) as a YAML document; `[]` for a missing file. */
+function loadPatch(dirPath: string): Document {
+  const path = join(dirPath, 'cordis.patch.yml')
   const text = existsSync(path) ? readFileSync(path, 'utf8') : '[]'
   const doc = parseDocument(text)
+  assertPatchParses(path, doc)
   const contents = doc.contents as YAMLSeq | null
   // The default-empty file parses as a flow `[]`; the patch layer is
   // human-edited block YAML, so flip the flag before anything appends.
-  if (contents !== null && contents.flow === true && contents.items.length === 0)
-    contents.flow = false
+  if (contents !== null && contents.flow === true && contents.items.length === 0) contents.flow = false
   return doc
 }
 
-function savePatch(profileDirPath: string, doc: Document): void {
-  mkdirSync(profileDirPath, { recursive: true })
-  writeFileSync(join(profileDirPath, 'cordis.patch.yml'), String(doc), 'utf8')
+function savePatch(dirPath: string, doc: Document): void {
+  mkdirSync(dirPath, { recursive: true })
+  writeFileSync(join(dirPath, 'cordis.patch.yml'), String(doc), 'utf8')
 }
 
 /** Wrap a plain value into a YAML node (yaml v2 exposes no standalone createNode). */
@@ -81,8 +120,7 @@ function isSeqNode(value: unknown): value is YAMLSeq<YAMLMap> {
 
 /** A patch entry's insert list when it is the anonymous create form. */
 function insertListOf(item: YAMLMap): YAMLSeq<YAMLMap> | undefined {
-  if (item.has('id'))
-    return undefined
+  if (item.has('id')) return undefined
   const node = item.get('insert')
   return isSeqNode(node) ? node : undefined
 }
@@ -91,12 +129,10 @@ function insertListOf(item: YAMLMap): YAMLSeq<YAMLMap> | undefined {
 function mcpRowItems(doc: Document): { node: YAMLMap, list?: YAMLSeq<YAMLMap> }[] {
   const found: { node: YAMLMap, list?: YAMLSeq<YAMLMap> }[] = []
   for (const item of rowSeq(doc).items ?? []) {
-    if (item.get('name') === MCP_PLUGIN)
-      found.push({ node: item })
+    if (item.get('name') === MCP_PLUGIN) found.push({ node: item })
     const list = insertListOf(item)
     for (const row of list?.items ?? []) {
-      if (row.get('name') === MCP_PLUGIN)
-        found.push({ node: row, list })
+      if (row.get('name') === MCP_PLUGIN) found.push({ node: row, list })
     }
   }
   return found
@@ -107,7 +143,7 @@ function rowToMcp(doc: Document, item: YAMLMap): McpRow {
   // config is a YAMLMap node — materialize it before property access.
   const configNode = item.get('config') as unknown
   const plain = (typeof configNode === 'object' && configNode !== null && typeof (configNode as { toJS?: unknown }).toJS === 'function'
-    ? (configNode as { toJS: (document: Document) => unknown }).toJS(doc)
+    ? (configNode as { toJS(document: Document): unknown }).toJS(doc)
     : {}) as Record<string, unknown>
   return {
     id: String(item.get('id') ?? ''),
@@ -124,8 +160,7 @@ function rowToMcp(doc: Document, item: YAMLMap): McpRow {
 }
 
 function isStringMap(value: unknown): value is Record<string, string> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
-    return false
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   return Object.values(value).every(entry => typeof entry === 'string')
 }
 
@@ -140,11 +175,9 @@ function managedInsert(doc: Document): YAMLSeq<YAMLMap> {
   const bare: YAMLMap[] = []
   let target: YAMLSeq<YAMLMap> | undefined
   for (const item of seq.items ?? []) {
-    if (item.get('name') === MCP_PLUGIN)
-      bare.push(item)
+    if (item.get('name') === MCP_PLUGIN) bare.push(item)
     const list = insertListOf(item)
-    if (list !== undefined && list.items.some(row => row.get('name') === MCP_PLUGIN))
-      target ??= list
+    if (list !== undefined && list.items.some(row => row.get('name') === MCP_PLUGIN)) target ??= list
   }
   if (target === undefined) {
     const entry = toNode<YAMLMap>({ insert: [] })
@@ -164,45 +197,76 @@ function takenIds(doc: Document): Set<string> {
   const taken = new Set<string>()
   for (const item of rowSeq(doc).items ?? []) {
     const id = String(item.get('id') ?? '')
-    if (id !== '')
-      taken.add(id)
+    if (id !== '') taken.add(id)
     for (const row of insertListOf(item)?.items ?? []) {
       const rowId = String(row.get('id') ?? '')
-      if (rowId !== '')
-        taken.add(rowId)
+      if (rowId !== '') taken.add(rowId)
     }
   }
   return taken
 }
 
-/** Read every mcp-client row in the profile layer. */
-export function listMcp(profileDirPath: string): McpRow[] {
-  const doc = loadPatch(profileDirPath)
+/** Read every mcp-client row in one patch layer (`<dirPath>/cordis.patch.yml`). */
+export function listMcp(dirPath: string): McpRow[] {
+  const doc = loadPatch(dirPath)
   return mcpRowItems(doc).map(({ node }) => rowToMcp(doc, node))
+}
+
+/**
+ * Merge both patch layers for the browser: global rows first (dsh composes
+ * them after the profile layer, so they win), profile rows tagged `shadowed`
+ * when a global row claims the same id. A broken home layer must not take
+ * the whole page down — its read failure degrades to `globalError` and the
+ * profile layer still lists (the assertPatchParses message names the file
+ * and the parser location, which is what the banner shows).
+ */
+export function listMcpScoped(profileDirPath: string, dshHomePath: string): McpListResult {
+  let globalRows: McpRow[] = []
+  let globalError: string | undefined
+  if (existsSync(join(dshHomePath, 'cordis.patch.yml'))) {
+    try {
+      globalRows = listMcp(dshHomePath)
+    } catch (error) {
+      globalError = error instanceof Error ? error.message : String(error)
+    }
+  }
+  const globalIds = new Set(globalRows.map(row => row.id).filter(id => id !== ''))
+  return {
+    servers: [
+      ...globalRows.map((row): McpRowView => ({ ...row, scope: 'global' })),
+      ...listMcp(profileDirPath).map((row): McpRowView => ({
+        ...row,
+        scope: 'profile',
+        ...(globalIds.has(row.id) ? { shadowed: true } : {}),
+      })),
+    ],
+    ...(globalError !== undefined ? { globalError } : {}),
+  }
+}
+
+/** Resolve a write target: the layer's directory holding its cordis.patch.yml. */
+export function mcpScopeDir(scope: McpScope, profileDirPath: string, dshHomePath: string): string {
+  return scope === 'global' ? dshHomePath : profileDirPath
 }
 
 /** Validate one write request; returns the rejection reason or null. */
 export function validateMcpInput(input: McpInput): string | null {
-  if (!SERVER_NAME_RE.test(input.serverName))
-    return 'serverName must be 1-32 chars of A-Z a-z 0-9 _ -'
+  if (!SERVER_NAME_RE.test(input.serverName)) return 'serverName must be 1-32 chars of A-Z a-z 0-9 _ -'
   // The route casts raw JSON to McpInput; a create request may omit `id`.
   const id = input.id ?? ''
-  if (id.includes('/') || id.includes('..'))
-    return 'invalid id'
+  if (id.includes('/') || id.includes('..')) return 'invalid id'
   if (input.transport === 'stdio') {
-    if (input.command === undefined || input.command.trim() === '')
-      return 'stdio transport requires a command'
-  }
-  else if (input.url === undefined || !/^https?:\/\//.test(input.url)) {
+    if (input.command === undefined || input.command.trim() === '') return 'stdio transport requires a command'
+  } else if (input.url === undefined || !/^https?:\/\//.test(input.url)) {
     return 'http transport requires an http(s) url'
   }
   return null
 }
 
 /** Add or replace one server row. Returns the (possibly deduplicated) id. */
-export function upsertMcp(profileDirPath: string, input: McpInput): string {
+export function upsertMcp(dirPath: string, input: McpInput): string {
   const inputId = input.id ?? ''
-  const doc = loadPatch(profileDirPath)
+  const doc = loadPatch(dirPath)
   const list = managedInsert(doc)
 
   const existing = inputId !== ''
@@ -232,46 +296,40 @@ export function upsertMcp(profileDirPath: string, input: McpInput): string {
         ...(input.headers !== undefined && Object.keys(input.headers).length > 0 ? { headers: input.headers } : {}),
       }
   const row: Record<string, unknown> = { id, name: MCP_PLUGIN, config }
-  if (input.disabled === true)
-    row.disabled = true
+  if (input.disabled === true) row.disabled = true
 
   const node = toNode<YAMLMap>(row)
   if (existing === undefined) {
     list.add(node)
-  }
-  else if (existing.list !== undefined) {
+  } else if (existing.list !== undefined) {
     existing.list.items.splice(existing.list.items.indexOf(existing.node), 1, node)
-  }
-  else {
+  } else {
     // Bare rows were absorbed above; reaching here means a foreign-shaped row.
     rowSeq(doc).items.splice(rowSeq(doc).items.indexOf(existing.node), 1, node)
   }
 
-  savePatch(profileDirPath, doc)
+  savePatch(dirPath, doc)
   return id
 }
 
 /** Flip one row's disabled flag (absent = enabled). Returns false when missing. */
-export function setMcpDisabled(profileDirPath: string, id: string, disabled: boolean): boolean {
-  const doc = loadPatch(profileDirPath)
+export function setMcpDisabled(dirPath: string, id: string, disabled: boolean): boolean {
+  const doc = loadPatch(dirPath)
   managedInsert(doc)
   const hit = mcpRowItems(doc).find(({ node }) => String(node.get('id') ?? '') === id)
-  if (hit === undefined)
-    return false
-  if (disabled)
-    hit.node.set('disabled', true)
+  if (hit === undefined) return false
+  if (disabled) hit.node.set('disabled', true)
   else hit.node.delete('disabled')
-  savePatch(profileDirPath, doc)
+  savePatch(dirPath, doc)
   return true
 }
 
 /** Remove one server row. Returns false when missing. */
-export function removeMcp(profileDirPath: string, id: string): boolean {
-  const doc = loadPatch(profileDirPath)
+export function removeMcp(dirPath: string, id: string): boolean {
+  const doc = loadPatch(dirPath)
   managedInsert(doc)
   const hit = mcpRowItems(doc).find(({ node }) => String(node.get('id') ?? '') === id)
-  if (hit === undefined || hit.list === undefined)
-    return false
+  if (hit === undefined || hit.list === undefined) return false
   hit.list.items.splice(hit.list.items.indexOf(hit.node), 1)
 
   // An insert entry left with no rows is dead weight; drop it when the
@@ -282,6 +340,84 @@ export function removeMcp(profileDirPath: string, id: string): boolean {
     seq.items.splice(seq.items.indexOf(owner), 1)
   }
 
-  savePatch(profileDirPath, doc)
+  savePatch(dirPath, doc)
   return true
+}
+
+/** Rebuild a create request from an existing row (id emptied; identity fields
+ *  carried over) — used to copy a row into the other patch layer. */
+export function mcpRowToInput(row: McpRow): McpInput {
+  return {
+    id: '',
+    serverName: row.serverName,
+    transport: row.transport,
+    disabled: row.disabled,
+    ...(row.transport === 'stdio'
+      ? {
+          command: row.command,
+          ...(row.args !== undefined ? { args: row.args } : {}),
+          ...(row.env !== undefined ? { env: row.env } : {}),
+          ...(row.cwd !== undefined ? { cwd: row.cwd } : {}),
+        }
+      : {
+          url: row.url,
+          ...(row.headers !== undefined ? { headers: row.headers } : {}),
+        }),
+  }
+}
+
+/**
+ * Whether a stdio command would resolve at spawn time: a bare name is looked
+ * up in the PATH entries (with the Windows executable extensions), anything
+ * with a path separator must exist as given. Pure filesystem reads — no
+ * process is spawned, so no console-window or side-effect concerns.
+ */
+export function resolveCommandOnPath(command: string, pathEnv: string, platform: string = process.platform): boolean {
+  if (command.includes('/') || command.includes('\\')) return existsSync(command)
+  const exts = platform === 'win32' ? ['', '.com', '.exe', '.bat', '.cmd'] : ['']
+  const separator = platform === 'win32' ? ';' : ':'
+  for (const rawDir of pathEnv.split(separator)) {
+    const dir = rawDir.trim().replace(/^"|"$/g, '')
+    if (dir === '') continue
+    for (const ext of exts) {
+      if (existsSync(join(dir, command + ext))) return true
+    }
+  }
+  return false
+}
+
+/** Outcome of a connectivity check, as the browser renders it. */
+export interface McpCheckResult {
+  ok: boolean
+  /** Short technical detail for the hint line ("HTTP 200", "not found on PATH"). */
+  detail?: string
+}
+
+/**
+ * Probe one server row without starting it: stdio rows are validated against
+ * the PATH (a spawn would leave console windows and side effects behind),
+ * streamable-http rows get a short GET — any HTTP status proves reachability,
+ * since MCP endpoints legitimately answer 405 to plain GETs.
+ */
+export async function checkMcpRow(row: McpRow, options: { timeoutMs?: number; pathEnv?: string; platform?: string } = {}): Promise<McpCheckResult> {
+  const pathEnv = options.pathEnv ?? process.env.PATH ?? ''
+  if (row.transport === 'stdio') {
+    const command = row.command ?? ''
+    if (command === '') return { ok: false, detail: 'row has no command' }
+    return resolveCommandOnPath(command, pathEnv, options.platform)
+      ? { ok: true, detail: command }
+      : { ok: false, detail: `${command} not found on PATH` }
+  }
+  if (row.url === undefined || !/^https?:\/\//.test(row.url)) return { ok: false, detail: 'row has no http url' }
+  try {
+    const response = await fetch(row.url, {
+      headers: { accept: 'application/json, text/event-stream' },
+      signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
+    })
+    return { ok: true, detail: `HTTP ${response.status}` }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const cause = (error as { cause?: { code?: unknown } }).cause?.code
+    return { ok: false, detail: cause !== undefined ? String(cause) : message }
+  }
 }
