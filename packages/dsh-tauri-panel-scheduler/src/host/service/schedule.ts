@@ -81,7 +81,7 @@ export function validateSchedule(schedule: unknown): schedule is SchedulerSchedu
   if (value.kind === 'hourly')
     return Number.isInteger(value.minute) && (value.minute as number) >= 0 && (value.minute as number) <= 59
   if (value.kind === 'interval')
-    return Number.isFinite(value.everyMinutes) && (value.everyMinutes as number) >= 1 && (value.everyMinutes as number) <= MAX_EVERY_MINUTES && typeof value.anchor === 'string' && Number.isFinite(new Date(value.anchor).getTime())
+    return Number.isFinite(value.everyMinutes) && (value.everyMinutes as number) >= 1 && (value.everyMinutes as number) <= MAX_EVERY_MINUTES && (value.anchor === undefined || (typeof value.anchor === 'string' && Number.isFinite(new Date(value.anchor).getTime())))
   if (value.kind === 'custom')
     return Number.isInteger(value.everyDays) && (value.everyDays as number) >= 1 && (value.everyDays as number) <= MAX_EVERY_DAYS && typeof value.anchor === 'string' && Number.isFinite(new Date(value.anchor).getTime()) && typeof value.time === 'string' && parseTimeToMinutes(value.time) !== undefined
   if (value.kind === 'daily' || value.kind === 'workdays')
