@@ -34,6 +34,40 @@ const LABELS = {
   waitChoice: IS_ZH ? '需选择' : 'Needs your input',
 } as const
 
+/** 工具名 → toast 展示标签（沿用既有风格：英文工具名大写 / 中文动词）。 */
+const TOOL_LABELS: Record<string, string> = {
+  pwsh: 'Pwsh',
+  bash: 'Bash',
+  grep: 'Grep',
+  glob: 'Glob',
+  read: '读取',
+  read_image: '看图',
+  write: '写入',
+  edit: '编辑',
+  str_replace_editor: '编辑',
+  web_search: '搜索',
+  web_fetch: '抓取',
+  think: '思考',
+  skill: '技能',
+} as const
+
+/** 工具名 → 从 args（JSON 字符串）提取展示明细的键，按优先级取第一个非空值。 */
+const TOOL_ARG_KEYS: Record<string, readonly string[]> = {
+  pwsh: ['command'],
+  bash: ['command'],
+  grep: ['pattern'],
+  glob: ['pattern'],
+  read: ['file_path', 'path'],
+  read_image: ['file_path', 'path'],
+  write: ['file_path', 'path'],
+  edit: ['file_path', 'path'],
+  str_replace_editor: ['file_path', 'path'],
+  web_search: ['queries', 'query'],
+  web_fetch: ['url'],
+  think: ['thought'],
+  skill: ['name'],
+} as const
+
 /** 状态优先级映射，数值越大优先级越高 */
 const STATUS_PRIORITY: Record<string, number> = {
   'waiting': 4,
@@ -371,6 +405,37 @@ function sanitizeText(str: string): string {
   return str.replace(/\s+/g, ' ').trim()
 }
 
+/** 从工具 args（JSON 字符串）按优先级提取展示明细；解析失败或无匹配键时返回 undefined。 */
+function toolArgDetail(tool: string, args: unknown): string | undefined {
+  if (typeof args !== 'string' || !args)
+    return undefined
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(args)
+  }
+  catch {
+    return undefined
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    return undefined
+
+  const record = parsed as Record<string, unknown>
+  for (const key of TOOL_ARG_KEYS[tool] ?? ['file_path', 'path']) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) {
+      return sanitizeText(value)
+    }
+    if (Array.isArray(value)) {
+      const first = value.find(item => typeof item === 'string' && item.trim())
+      if (typeof first === 'string' && first.trim()) {
+        return sanitizeText(first)
+      }
+    }
+  }
+  return undefined
+}
+
 /** 生成 Toast 渲染数据 */
 function toastContent(session: BubbleSession, status: PetStatus) {
   const getFirstString = (...items: unknown[]): string | undefined => {
@@ -394,37 +459,13 @@ function toastContent(session: BubbleSession, status: PetStatus) {
     }
 
     if (kind === 'tool' && typeof name === 'string' && name) {
-      let detail: string | undefined
-      if (typeof args === 'string' && args) {
-        try {
-          const parsed = JSON.parse(args)
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const keys = name === 'pwsh' || name === 'bash'
-              ? ['command']
-              : name === 'str_replace_editor'
-                ? ['path']
-                : ['file_path', 'path']
+      const tool = name.toLowerCase()
+      const label = TOOL_LABELS[tool]
+      if (!label)
+        return `工具调用 · ${name}`
 
-            for (const k of keys) {
-              if (typeof parsed[k] === 'string' && parsed[k].trim()) {
-                detail = sanitizeText(parsed[k])
-                break
-              }
-            }
-          }
-        }
-        catch {
-          // JSON 校验失败时容错
-        }
-      }
-
-      if (name === 'pwsh' || name === 'bash') {
-        return `${name === 'pwsh' ? 'Pwsh' : 'Bash'} · ${detail ?? '命令执行'}`
-      }
-      if (name === 'str_replace_editor' || name === 'edit' || name === 'write') {
-        return `编辑 · ${detail ?? name}`
-      }
-      return `工具调用 · ${name}`
+      const detail = toolArgDetail(tool, args)
+      return detail ? `${label} · ${detail}` : label
     }
 
     return undefined

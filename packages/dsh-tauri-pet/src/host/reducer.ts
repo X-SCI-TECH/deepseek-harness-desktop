@@ -176,16 +176,9 @@ export function foldPetPayload(state: PetSessionState): PetSessionPayload {
   }
 }
 
-/** 工具名 → liveActivity 展示对象（与 use-bubble.ts getLiveActivity 对齐：携带 args 供其解析 command/path）。 */
+/** 工具名 → liveActivity 展示对象（所有工具统一携带 name+args，展示标签由 use-bubble.ts 侧映射）。 */
 function toolActivity(name?: string, args?: string): PetSessionPayload['liveActivity'] {
-  if (!name)
-    return { kind: 'tool' }
-  const lower = name.toLowerCase()
-  if (lower === 'pwsh' || lower === 'bash')
-    return { kind: 'tool', name, args }
-  if (lower === 'str_replace_editor' || lower === 'edit' || lower === 'write')
-    return { kind: 'tool', name, args }
-  return { kind: 'tool', name, args }
+  return name ? { kind: 'tool', name, args } : { kind: 'tool' }
 }
 
 /**
