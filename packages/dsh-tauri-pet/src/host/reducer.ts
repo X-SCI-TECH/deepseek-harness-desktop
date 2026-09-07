@@ -43,8 +43,38 @@ export interface PetSessionPeer {
 }
 
 /**
+ * 工作状态细分档位（对齐 dsh-pet src/shared/work-status.ts 的 6 档枚举；
+ * 索引 = config.jsonc animations.events.workStatus 数组索引，勿在中间插入新档）。
+ * 取代旧「粗档 status（error/waiting/running）」成为会话气泡与动画的权威驱动：
+ *   - thinking：turn/start 或回合内思考（无工具在跑）
+ *   - working：tool/call 工具调用中
+ *   - result：tool/result 后整理（无其余工具在跑）
+ *   - waiting：approval/asked、问句工具、turn/end blocked（等用户）
+ *   - success：turn/end completed（终态档，播一次庆祝后回落）
+ *   - error：turn/end error/max-tokens/timeout（终态档）
+ * 语义对齐 dsh-pet src/host/work-status.ts 的 reduceWorkStatus，并叠加
+ * dsh-dafeiyu companion-reducer 的累计态语义（openTools 有剩 → 保持 working）。
+ */
+export type PetWorkStatus = 'thinking' | 'working' | 'result' | 'waiting' | 'success' | 'error'
+
+/** 档位 → events.workStatus 数组索引（与 config.jsonc 顺序严格一致）。 */
+export const PET_WORK_STATUS_INDEX: Record<PetWorkStatus, number> = {
+  thinking: 0,
+  working: 1,
+  result: 2,
+  waiting: 3,
+  success: 4,
+  error: 5,
+}
+
+/** 工具活动分类（对齐 dsh-dafeiyu companion-reducer 的 toolActivity）：气泡按分类选文案。 */
+export type PetToolActivity = 'searching' | 'editing' | 'testing' | 'commanding' | 'using-tool'
+
+/**
  * 桌宠展示态的字段子集（与客户端 projection.ts 的 PET_FORWARDED_FIELDS
  * + PET_FORWARDED_ACTIVITY_FIELD='liveActivity' 对齐；origin 已加入）。
+ * workStatus/task/toolActivity 为细分档位新增字段：气泡文案（use-bubble.ts）
+ * 与动画切档（pet-config 的 PRESET_SESSION_ANIMATIONS）都以此为驱动。
  */
 export interface PetSessionPayload {
   id: string
@@ -61,6 +91,12 @@ export interface PetSessionPayload {
   pendingInteraction?: unknown
   pending?: readonly unknown[]
   lastAgentError?: string
+  /** 细分工作状态档位（thinking/working/result/waiting/success/error）。 */
+  workStatus?: PetWorkStatus
+  /** 当前任务文本（todo/write 的 in_progress/pending 项），供气泡 taskCopy 文案。 */
+  task?: string
+  /** 当前工具活动分类（working 期间），供气泡 activityCopy 文案。 */
+  toolActivity?: PetToolActivity
   liveActivity?: {
     kind: string
     text?: string
@@ -98,6 +134,12 @@ export interface PetSessionState {
   waitingApprovalId?: string
   /** 当前「等用户回答」的问句工具调用 id（来自 user-question tool/call）。 */
   waitingCallId?: string
+  /** 细分工作状态档位（thinking/working/result/waiting/success/error；随事件变化）。 */
+  workStatus?: PetWorkStatus
+  /** 当前任务文本（todo/write 的 in_progress/pending 项 content，无则为空）。 */
+  task?: string
+  /** 当前工具活动分类（最近一次 working 工具名分类，供气泡 activityCopy 文案）。 */
+  toolActivity?: PetToolActivity
   /** 首次写入时间戳，当前不用于去重（保留给未来生命周期）。 */
   firstSeqAt: number
 }
@@ -131,6 +173,9 @@ function payloadEqual(a: PetSessionPayload, b: PetSessionPayload): boolean {
     && Object.is(a.origin, b.origin)
     && Object.is(a.title, b.title)
     && Object.is(a.displayTitle, b.displayTitle)
+    && Object.is(a.workStatus, b.workStatus)
+    && Object.is(a.task, b.task)
+    && Object.is(a.toolActivity, b.toolActivity)
     && Object.is(a.liveActivity?.kind, b.liveActivity?.kind)
     && Object.is(a.liveActivity?.text, b.liveActivity?.text)
     && Object.is(a.liveActivity?.name, b.liveActivity?.name)
@@ -151,6 +196,7 @@ export function foldPetPayload(state: PetSessionState): PetSessionPayload {
       ? { kind: 'reasoning', text: state.reasoningTail }
       : undefined
 
+  // 细分档位是权威（气泡/动画按它切档）；粗 status 保留作兼容回退。
   let status: string | undefined
   if (state.lastAgentError)
     status = 'error'
@@ -172,6 +218,9 @@ export function foldPetPayload(state: PetSessionState): PetSessionPayload {
     phase: state.waitingKind,
     running: state.running,
     lastAgentError: state.lastAgentError,
+    workStatus: state.workStatus,
+    task: state.task,
+    toolActivity: state.toolActivity,
     liveActivity,
   }
 }
@@ -245,6 +294,29 @@ function isUserQuestionTool(name?: string): boolean {
   return hasUserNoun || hasNounFromUser || hasAsk || strong || submitsPlanForApproval
 }
 
+/** 工具名 → 活动分类（对齐 dsh-dafeiyu companion-reducer 的 toolActivity + DSH 实际工具名 pwsh）：气泡按分类选文案。 */
+export function toolActivityOf(name?: string): PetToolActivity {
+  const value = String(name || '').toLowerCase()
+  if (/search|grep|find|glob|web|read|fetch|open/.test(value))
+    return 'searching'
+  if (/write|edit|patch|replace|create|move|delete/.test(value))
+    return 'editing'
+  if (/test|check|lint|build|verify/.test(value))
+    return 'testing'
+  if (/shell|bash|exec|command|terminal|powershell|pwsh/.test(value))
+    return 'commanding'
+  return 'using-tool'
+}
+
+/** 从 todo/write 提取当前任务文本（in_progress 优先、其次 pending；与 dsh-dafeiyu 的 #todo 一致）。 */
+export function currentTaskFromTodo(data: Record<string, unknown>): string | undefined {
+  const todos = Array.isArray(data.todos) ? (data.todos as Array<{ status?: string, content?: string }>) : []
+  const current = todos.find(todo => todo?.status === 'in_progress')
+    ?? todos.find(todo => todo?.status === 'pending')
+  const content = String(current?.content ?? '').trim()
+  return content || undefined
+}
+
 /** 一次会话增量事件的 reducer：返回变化后的 payload 或 null（未变化则不转发）。 */
 export function reduceSessionEvent(
   state: PetSessionState,
@@ -263,18 +335,28 @@ export function reduceSessionEvent(
       state.waitingKind = undefined
       state.waitingApprovalId = undefined
       state.waitingCallId = undefined
+      // 新回合开始：清上一回合的终态错误与任务残留，避免「上一轮报错、本轮继续跑」
+      // 时 use-bubble 仍按 lastAgentError 判 failed 收起气泡。
+      state.lastAgentError = undefined
+      state.workStatus = 'thinking'
+      state.task = undefined
       break
     }
     case 'step/start':
     case 'assistant/chunk': {
       state.stepActive = true
       state.running = true
+      if (t === 'step/start' && !state.waitingKind && state.openTools.size === 0)
+        state.workStatus = 'thinking'
       if (t === 'assistant/chunk') {
         // StreamChunk 真实形状：reasoning-delta / text-delta 携带增量 text（非 chunk.content）。
         const chunk = data.chunk as { type?: string, text?: string } | undefined
         if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string' && chunk.text) {
           // 滚动尾部窗口：只保留最近的文本，新内容不断挤掉最早的，气泡即可实时滚动更新。
           state.reasoningTail = (state.reasoningTail + chunk.text).slice(-PET_REASONING_TAIL_WINDOW)
+          // 回合内思考（无工具在跑）→ thinking：气泡显示「正在认真想下一步」。
+          if (!state.waitingKind && state.openTools.size === 0)
+            state.workStatus = 'thinking'
           // reasoning 需要实时浮出（气泡「思考 · text」），但不逐 token 洪泛：仅当
           // 尾部文本实际变化才折叠（下方 foldable 判定对 assistant/chunk 在本分支处理）。
           return foldPetPayload(state)
@@ -294,6 +376,8 @@ export function reduceSessionEvent(
       const text = blocks?.filter(b => b?.type === 'text' && typeof b.text === 'string').map(b => b.text).join('')
       if (text)
         state.assistantText = text.slice(-1000)
+      if (!state.waitingKind && state.openTools.size === 0)
+        state.workStatus = 'thinking'
       break
     }
     case 'tool/call': {
@@ -307,6 +391,12 @@ export function reduceSessionEvent(
       if (name && isUserQuestionTool(name)) {
         state.waitingKind = 'user-question'
         state.waitingCallId = tc.callId ?? name
+        state.workStatus = 'waiting'
+      }
+      else {
+        if (name)
+          state.toolActivity = toolActivityOf(name)
+        state.workStatus = 'working'
       }
       break
     }
@@ -324,9 +414,18 @@ export function reduceSessionEvent(
       else {
         state.openTools.clear()
       }
-      const err = data.error as { name?: string } | undefined
-      if (err?.name)
-        state.lastAgentError = String(err.name)
+      // 注意：工具级失败（data.error）不写入 lastAgentError —— 那是回合级终态语义，
+      // 写入后 use-bubble 会把本会话判为 failed 并 4s 收起气泡，而回合仍在跑（对齐
+      // dsh-dafeiyu：tool/result 错误只发 toolError 提示，状态回 WORKING/THINKING，
+      // 不污染终态）。回合真正失败由 turn/end(error) 负责记录。
+      // 工具完成回整理（dsh-pet：tool/result → result 档）；仍有工具在跑则保持 working。
+      if (state.openTools.size > 0) {
+        state.workStatus = 'working'
+        state.toolActivity = toolActivityOf(state.openTools.values().next().value?.name)
+      }
+      else {
+        state.workStatus = state.waitingKind ? 'waiting' : 'result'
+      }
       break
     }
     case 'approval/asked': {
@@ -335,6 +434,7 @@ export function reduceSessionEvent(
       state.waitingKind = 'approval'
       state.waitingApprovalId = id
       state.running = true
+      state.workStatus = 'waiting'
       break
     }
     case 'approval/decided': {
@@ -342,6 +442,8 @@ export function reduceSessionEvent(
       if (state.waitingApprovalId && id === state.waitingApprovalId) {
         state.waitingApprovalId = undefined
         state.waitingKind = undefined
+        // 审批通过后继续干活：还有工具在跑 → working；否则回思考。
+        state.workStatus = state.openTools.size > 0 ? 'working' : 'thinking'
       }
       else {
         // 与当前记录不匹配：状态未变，不转发。
@@ -354,12 +456,23 @@ export function reduceSessionEvent(
       // 避免把用户提示当成助手描述。展示 message 只来自 assistant/message。
       state.running = true
       state.turnActive = true
-      // 若此前在等用户回答（问句工具），用户已应答 → 清除等待态。
+      // 若此前在等用户回答（问句工具），用户已应答 → 清除等待态，继续干活。
       if (state.waitingCallId !== undefined) {
         state.waitingKind = undefined
         state.waitingCallId = undefined
+        state.workStatus = state.openTools.size > 0 ? 'working' : 'thinking'
       }
       break
+    }
+    case 'todo/write': {
+      // 任务清单更新：当前任务（in_progress/pending）作为气泡 taskCopy 文案来源。
+      const task = currentTaskFromTodo(data)
+      if (task !== state.task) {
+        state.task = task
+        // task 变化即转发（供气泡展示「正在处理 xxx」）；其余字段不动。
+        return foldPetPayload(state)
+      }
+      return null
     }
     case 'session/title': {
       // 会话标题日志事件：覆盖身份字段（title/displayTitle 取同一值；origin 由 peer 权威覆盖）。
@@ -383,12 +496,29 @@ export function reduceSessionEvent(
       if (reason?.kind === 'blocked') {
         // 会话被阻塞等待用户处理：展示为「等待中」。
         state.waitingKind = 'blocked'
+        state.workStatus = 'waiting'
       }
       else {
         state.waitingKind = undefined
-        if (reason?.kind === 'error' || reason?.kind === 'aborted') {
+        const kind = reason?.kind
+        if (kind === 'completed') {
+          // 回合完成（终态档）：播一次庆祝动画；lastAgentError 清空（本轮无错）。
+          state.workStatus = 'success'
+          state.lastAgentError = undefined
+        }
+        else if (kind === 'error' || kind === 'max-tokens' || kind === 'timeout') {
+          // 失败/达上限（终态档）：record error 信息供气泡展示失败详情。
+          state.workStatus = 'error'
           const errBody = (data as { reason?: { error?: { message?: string } } }).reason
-          state.lastAgentError = errBody?.error?.message ?? reason.kind
+          state.lastAgentError = errBody?.error?.message ?? kind
+        }
+        else {
+          // aborted 等：回合中断，清档回空闲（绝不残留上一档，防止「一直 working」挂死）。
+          state.workStatus = undefined
+          if (kind === 'error' || kind === 'aborted') {
+            const errBody = (data as { reason?: { error?: { message?: string } } }).reason
+            state.lastAgentError = errBody?.error?.message ?? kind
+          }
         }
       }
       break
@@ -422,6 +552,7 @@ export function reduceSessionEvent(
  * 避免逐 token 洪泛 —— 状态实时累积，但最多每 500ms 推送一次最新尾部。
  * @param handle - 变化时回调 (action, payload)。
  * @param opts - 可选注入时钟（默认 Date.now），供单测 hermetic 推进时间。
+ * @param opts.now - 时钟函数（ms），节流窗口判定用；默认 Date.now。
  */
 export function createPetSessionReducer(
   handle: (action: 'create' | 'update' | 'remove', payload: PetSessionPayload) => void,

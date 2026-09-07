@@ -39,26 +39,26 @@ describe('petSessionReducer (host)', () => {
     expect(pushes[0].payload.status).toBeUndefined()
   })
 
-  it('turn/start 让 running=true、status=running', () => {
+  it('turn/start 让 running=true、status=running、workStatus=thinking', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     const last = pushes.at(-1)!
     expect(last.action).toBe('update')
-    expect(last.payload).toMatchObject({ id: 'a', running: true, status: 'running' })
+    expect(last.payload).toMatchObject({ id: 'a', running: true, status: 'running', workStatus: 'thinking' })
   })
 
-  it('assistant/chunk(reasoning-delta) 累积出 liveActivity=reasoning', () => {
+  it('assistant/chunk(reasoning-delta) 累积出 liveActivity=reasoning、workStatus=thinking', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     reducer.apply(peer(), ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', text: '思考' } }, 2))
     const last = pushes.at(-1)!
-    expect(last.payload).toMatchObject({ running: true, status: 'running' })
+    expect(last.payload).toMatchObject({ running: true, status: 'running', workStatus: 'thinking' })
     expect(last.payload.liveActivity).toMatchObject({ kind: 'reasoning', text: '思考' })
   })
 
-  it('tool/call 时 liveActivity 切换为工具名（携带 args），tool/result 后清空', () => {
+  it('tool/call 时 liveActivity 切换为工具名（携带 args）、workStatus=working，tool/result 后回 result', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
@@ -66,50 +66,66 @@ describe('petSessionReducer (host)', () => {
     reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{"command":"ls"}' }, 3))
     const toolPush = pushes.at(-1)!
     expect(toolPush.payload.liveActivity).toMatchObject({ kind: 'tool', name: 'pwsh', args: '{"command":"ls"}' })
-    // tool/result 结束 c1，openTools 清空；reasoning 仍在 → 回到 reasoning。
+    expect(toolPush.payload).toMatchObject({ workStatus: 'working', toolActivity: 'commanding' })
+    // tool/result 结束 c1，openTools 清空；reasoning 仍在 → 回到 thinking 文案，档位切 result。
     reducer.apply(peer(), ev('tool/result', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'ok' }] } }, 4))
     const afterResult = pushes.at(-1)!
+    expect(afterResult.payload).toMatchObject({ workStatus: 'result' })
     expect(afterResult.payload.liveActivity).toMatchObject({ kind: 'reasoning', text: '思考' })
   })
 
-  it('approval/asked 让展示为 waiting(phase=approval)，approval/decided 后清除', () => {
+  it('tool/call 后仍有其他工具在跑 → workStatus 保持 working', () => {
+    const { reducer, pushes } = collect()
+    reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
+    reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'grep', arguments: '{"pattern":"x"}' }, 2))
+    reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c2', name: 'read', arguments: '{"file_path":"a.ts"}' }, 3))
+    // 结束 c1 后 c2 仍在 openTools → 档位依旧 working（不落回 thinking/result）。
+    reducer.apply(peer(), ev('tool/result', { turn: 1, step: 1, message: { source: { callId: 'c1' } } }, 4))
+    const last = pushes.at(-1)!
+    expect(last.payload).toMatchObject({ workStatus: 'working', toolActivity: 'searching' })
+  })
+
+  it('approval/asked 让展示为 waiting(phase=approval, workStatus=waiting)，approval/decided 后回 thinking', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     reducer.apply(peer(), ev('approval/asked', { id: 'ap1', toolName: 'plan_final_approval' }, 2))
     const asked = pushes.at(-1)!
-    expect(asked.payload).toMatchObject({ running: true, status: 'waiting', phase: 'approval' })
-    // 相同 id 的 decided 清除等待态；running 仍在 → 回到 running。
+    expect(asked.payload).toMatchObject({ running: true, status: 'waiting', phase: 'approval', workStatus: 'waiting' })
+    // 相同 id 的 decided 清除等待态；running 仍在 → 回到 running（细分为 thinking，无工具在跑）。
     reducer.apply(peer(), ev('approval/decided', { id: 'ap1' }, 3))
     const decided = pushes.at(-1)!
     expect(decided.payload.status).toBe('running')
     expect(decided.payload.phase).toBeUndefined()
+    expect(decided.payload).toMatchObject({ workStatus: 'thinking' })
   })
 
-  it('user-question 工具调用让展示为 waiting(phase=user-question)，user/message 应答后清除', () => {
+  it('user-question 工具调用让展示为 waiting(phase=user-question, workStatus=waiting)，user/message 应答后清除', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'uq1', name: 'ask_user_question', arguments: '{}' }, 2))
     const waiting = pushes.at(-1)!
-    expect(waiting.payload).toMatchObject({ running: true, status: 'waiting', phase: 'user-question' })
-    // 用户应答后（user/message）清除等待态。
+    expect(waiting.payload).toMatchObject({ running: true, status: 'waiting', phase: 'user-question', workStatus: 'waiting' })
+    // 用户应答后（user/message）清除等待态，问句工具仍在 openTools → 回 working。
     reducer.apply(peer(), ev('user/message', { turn: 1, message: { role: 'user', content: [{ type: 'text', text: '继续' }] } }, 3))
     const afterAnswer = pushes.at(-1)!
     expect(afterAnswer.payload.status).toBe('running')
     expect(afterAnswer.payload.phase).toBeUndefined()
+    expect(afterAnswer.payload).toMatchObject({ workStatus: 'working' })
   })
 
-  it('turn/end(blocked) 让展示为 waiting(phase=blocked)（等待用户处理非思考中）', () => {
+  it('turn/end(blocked) 让展示为 waiting(phase=blocked, workStatus=waiting)（等待用户处理非思考中）', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     reducer.apply(peer(), ev('turn/end', { turn: 1, reason: { kind: 'blocked' } }, 2))
     const last = pushes.at(-1)!
-    expect(last.payload).toMatchObject({ running: false, status: 'waiting', phase: 'blocked' })
+    expect(last.payload).toMatchObject({ running: false, status: 'waiting', phase: 'blocked', workStatus: 'waiting' })
   })
 
-  it('turn/end(completed) 把 running 翻回 false、status 清空', () => {
+  it('turn/end(completed) 把 running 翻回 false、粗 status 清空、workStatus=success（终态庆祝档）', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
@@ -118,10 +134,11 @@ describe('petSessionReducer (host)', () => {
     const last = pushes.at(-1)!
     expect(last.payload).toMatchObject({ id: 'a', running: false })
     expect(last.payload.status).toBeUndefined()
+    expect(last.payload).toMatchObject({ workStatus: 'success' })
     expect(last.payload.liveActivity).toBeUndefined()
   })
 
-  it('turn/end(error) 记录 lastAgentError → status=error', () => {
+  it('turn/end(error) 记录 lastAgentError → 粗 status=error、workStatus=error（终态失败档）', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
@@ -130,7 +147,60 @@ describe('petSessionReducer (host)', () => {
       reason: { kind: 'error', error: { message: 'boom' } },
     }, 2))
     const last = pushes.at(-1)!
-    expect(last.payload).toMatchObject({ running: false, status: 'error', lastAgentError: 'boom' })
+    expect(last.payload).toMatchObject({ running: false, status: 'error', lastAgentError: 'boom', workStatus: 'error' })
+  })
+
+  it('turn/end(max-tokens) 归为 workStatus=error（输出上限）', () => {
+    const { reducer, pushes } = collect()
+    reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
+    reducer.apply(peer(), ev('turn/end', { turn: 1, reason: { kind: 'max-tokens' } }, 2))
+    const last = pushes.at(-1)!
+    expect(last.payload).toMatchObject({ workStatus: 'error', lastAgentError: 'max-tokens' })
+  })
+
+  it('turn/end(aborted) 清档：workStatus 为空（不残留上一档，防止一直 working 挂死）', () => {
+    const { reducer, pushes } = collect()
+    reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
+    reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{}' }, 2))
+    reducer.apply(peer(), ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
+    const last = pushes.at(-1)!
+    expect(last.payload).toMatchObject({ running: false })
+    expect(last.payload.workStatus).toBeUndefined()
+  })
+
+  it('tool/result 的工具级错误不写入 lastAgentError（回合仍在跑时不得判 failed 收起气泡）', () => {
+    const { reducer, pushes } = collect()
+    reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
+    reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{}' }, 2))
+    // 工具执行失败（data.error），但回合未结束：不得污染 lastAgentError / 粗 status。
+    reducer.apply(peer(), ev('tool/result', {
+      turn: 1,
+      step: 1,
+      error: { name: 'EPERM', message: 'operation not permitted' },
+    }, 3))
+    const last = pushes.at(-1)!
+    expect(last.payload.lastAgentError).toBeUndefined()
+    expect(last.payload.status).toBe('running')
+    expect(last.payload).toMatchObject({ workStatus: 'result' })
+  })
+
+  it('新回合 turn/start 清除上一回合的 lastAgentError 残留（错误不跨回合）', () => {
+    const { reducer, pushes } = collect()
+    reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
+    reducer.apply(peer(), ev('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', error: { message: 'boom' } },
+    }, 2))
+    expect(pushes.at(-1)!.payload).toMatchObject({ workStatus: 'error', lastAgentError: 'boom' })
+    // 用户继续对话 → 新回合：错误清除，档位回 thinking。
+    reducer.apply(peer(), ev('turn/start', { turn: 2 }, 3))
+    const next = pushes.at(-1)!
+    expect(next.payload.lastAgentError).toBeUndefined()
+    expect(next.payload).toMatchObject({ workStatus: 'thinking' })
   })
 
   it('展示态未变化时不重复转发（去重，防 #396 高频转发）', () => {
@@ -192,11 +262,20 @@ describe('petSessionReducer (host)', () => {
     expect(last.payload.origin).toBe('subagent')
   })
 
-  it('filter 只对 foldable 事件转发：todo/write 等 log-only 事件不产生 update', () => {
+  it('todo/write 更新当前任务：task 首次写入才转发（供气泡 taskCopy 文案），重复相同不转发', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
+    reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     const before = pushes.length
-    reducer.apply(peer(), ev('todo/write', { todos: [{ id: 't1', content: 'x' }] }, 1))
+    // 无 in_progress/pending 项：task 不变，不转发。
+    reducer.apply(peer(), ev('todo/write', { todos: [{ id: 't0', status: 'completed', content: 'x' }] }, 2))
     expect(pushes.length).toBe(before)
+    // 出现 in_progress 任务：task 变化 → 转发（气泡显示「正在处理 xxx」）。
+    reducer.apply(peer(), ev('todo/write', { todos: [{ id: 't1', status: 'in_progress', content: '整理文档' }] }, 3))
+    const withTask = pushes.at(-1)!
+    expect(withTask.payload).toMatchObject({ task: '整理文档' })
+    // 相同任务再次写入：无变化，不重复转发。
+    reducer.apply(peer(), ev('todo/write', { todos: [{ id: 't1', status: 'in_progress', content: '整理文档' }] }, 4))
+    expect(pushes.length).toBe(before + 1)
   })
 })
