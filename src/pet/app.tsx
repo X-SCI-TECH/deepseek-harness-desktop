@@ -8,6 +8,7 @@ import { useBubble } from './hooks/use-bubble'
 import { useDrag } from './hooks/use-drag'
 import { useOmitIgnoreCursorEvents } from './hooks/use-omit-ignore-cursor-events'
 import { usePet } from './hooks/use-pet'
+import { isLoopingAnimation } from './pet-config'
 
 /** 拖拽方向 → 动画状态：桌面宠物在原生拖拽期间播放对应的移动动画。 */
 const DRAW_STATUS: Record<DragDirection, PetStatus> = {
@@ -30,8 +31,10 @@ export function App() {
     () => {
       if (bubble.status === undefined)
         return pet.clear()
+      // 细分档位（thinking/working/result/waiting）与 running 均为循环档；
+      // 终态档（success/error）与 review/failed 播一次后回落（handleEnded）。
       pet.change({
-        loop: bubble.status === 'running',
+        loop: isLoopingAnimation(bubble.status),
         status: bubble.status,
       })
     },
