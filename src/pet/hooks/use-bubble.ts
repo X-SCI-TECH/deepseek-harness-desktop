@@ -31,6 +31,14 @@ const FAILED_PULSE_TTL = 1800
 const TERMINAL_PULSE_TTL = 10000
 /** 会话完成/变空闲后保留的时长：超过即从会话表沉淀，防止 durable subagent 等永不发 remove 的会话无界积累。 */
 const IDLE_SESSION_RETENTION = 5000
+/**
+ * 聚合状态下发合并窗口（ms）：突发到达的多会话状态变更只取窗内「最新」值下发一次。
+ * 多会话并行时每个 session:update 事件都走 updateAgg，若每档都立即 setStatus，
+ * app.tsx 的 useWatch 会对逐个差异档位调用 pet.change 重载动画——工作档位
+ * （thinking 20 / result 25 / working 30）交错抖动会让桌宠动画被频繁切回/重放。
+ * 统一合并：窗内只刷新 pendingAgg，到期一次性下发最新聚合态，中间档位全部丢弃。
+ */
+const STATUS_COALESCE_MS = 100
 
 /** 桌宠窗口无 i18n 基础设施，就地按窗口语言取单语文案（与 pet.tsx 保留文案一致）。 */
 const IS_ZH = (typeof document !== 'undefined' ? document.documentElement.lang || navigator.language : 'zh-CN')
@@ -113,16 +121,40 @@ export function useBubble(): BubbleHandle {
     const pruneTimers = new Map<string, number>()
 
     let lastAgg: PetStatus | undefined
+    /** 合并窗口内最新计算出的聚合态（未下发前持续被更新，窗口到期统一下发）。 */
+    let pendingAgg: PetStatus | undefined
+    /** pendingAgg 是否有待下发的变更（区分「待下发 undefined 态」与「无变更」）。 */
+    let hasPendingAgg = false
+    let aggFlushTimer: number | undefined
     let disposed = false
+
+    /** 合并窗口到期：把窗口内「最新」聚合态下发（中间态已丢弃，只发最终值）。 */
+    const flushPendingAgg = () => {
+      aggFlushTimer = undefined
+      if (disposed || !hasPendingAgg)
+        return
+      hasPendingAgg = false
+      const next = pendingAgg
+      if (next !== lastAgg) {
+        lastAgg = next
+        setStatus(next)
+      }
+    }
 
     const updateAgg = () => {
       const next = statusOf(sessions, failedUntil, Date.now())
-      if (next !== lastAgg) {
-        lastAgg = next
-        if (!disposed) {
-          setStatus(next)
-        }
-      }
+      if (next === lastAgg && !hasPendingAgg)
+        return
+      // 始终只处理「最新」的会话状态变更：突发（多会话交错或单会话档位连跳）内
+      // 每次 updateAgg 都刷新 pendingAgg 并重置合并窗口（trailing 窗口），
+      // lastAgg 保持已下发的值——窗口只收敛到最终聚合态再一次性下发，
+      // 中间档位（thinking/result/working 交错）全部丢弃，避免逐个触发
+      // app.tsx 的 pet.change 让动画被反复切回/重载（多会话频繁切回动画的根因）。
+      hasPendingAgg = true
+      pendingAgg = next
+      if (aggFlushTimer !== undefined)
+        window.clearTimeout(aggFlushTimer)
+      aggFlushTimer = window.setTimeout(flushPendingAgg, STATUS_COALESCE_MS)
     }
 
     const clearTimer = (map: Map<string, number>, id: string) => {
@@ -358,6 +390,8 @@ export function useBubble(): BubbleHandle {
       clearAllTimers(hideTimers)
       clearAllTimers(pulseTimers)
       clearAllTimers(pruneTimers)
+      if (aggFlushTimer !== undefined)
+        window.clearTimeout(aggFlushTimer)
 
       toastKeys.forEach(k => toast.close(k))
       toastKeys.clear()
