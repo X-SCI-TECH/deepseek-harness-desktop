@@ -25,10 +25,18 @@ export function App() {
   const { clickCount, direction, dragging } = useDrag(dragRef)
   useOmitIgnoreCursorEvents(dragRef)
   const drawStatus = direction === undefined ? undefined : DRAW_STATUS[direction]
+  // useWatch 的 deps 是每次渲染新建的字面量数组（见 @hairy/react-lib），effect 在
+  // 每次渲染都会执行；拖拽期间 direction/clickCount 会高频触发重渲染，若不节流，
+  // 每次渲染都会 pet.change() 使 override.revision 递增，视频效果随之反复重载
+  // 同一个动画（拖拽动画被 Moved 事件不断重启）。会话状态未变化时跳过下发。
+  const lastStatusRef = useRef<PetStatus | undefined>(undefined)
 
   useWatch(
     [bubble.status, pet],
     () => {
+      if (bubble.status === lastStatusRef.current)
+        return
+      lastStatusRef.current = bubble.status
       if (bubble.status === undefined)
         return pet.clear()
       // 细分档位（thinking/working/result/waiting）与 running 均为循环档；

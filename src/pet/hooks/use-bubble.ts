@@ -245,6 +245,19 @@ export function useBubble(): BubbleHandle {
       previousStatus.set(session.id, current)
       const key = toastKeys.get(session.id)
 
+      // 子代理会话整体静默：状态仍参与聚合与沉淀（previousStatus/armPrune 照常），
+      // 但不创建/更新/关闭任何 toast——子代理任务多且切换频繁，活跃追踪 toast 会
+      // 不断弹出/更新，属于视觉噪音（此前只抑制了「已完成」toast，活跃 toast 仍会弹）。
+      if (session.origin === 'subagent') {
+        if (key !== undefined) {
+          closeToast(session.id)
+        }
+        if (current === undefined && previous !== undefined) {
+          armPrune(session.id)
+        }
+        return
+      }
+
       if (current === undefined) {
         if (key !== undefined)
           closeToast(session.id)
@@ -399,7 +412,10 @@ function sessionStatus(session: BubbleSession, ignoreError = false): PetStatus |
   // 终态错误判定只在回合已结束（running !== true）时生效：工具级失败/旧快照的
   // lastAgentError 若与 running=true 并存，说明回合仍在跑（agent 捕获错误继续），
   // 此时绝不判 failed 收起气泡（用户报告：会话还在跑 toast 却消失了）。
-  if (!ignoreError && session.running !== true && (value === 'failed' || value === 'error' || Boolean(session.lastAgentError))) {
+  // lastAgentError==='aborted' 是旧版插件宿主（未重新部署 dist 的安装）把手动取消误记为
+  // 错误的兜底豁免：取消是用户主动中断而非失败，不弹「失败：aborted」。新版宿主已不再下发该值。
+  const agentError = session.lastAgentError
+  if (!ignoreError && session.running !== true && (value === 'failed' || value === 'error' || (Boolean(agentError) && agentError !== 'aborted'))) {
     return 'failed'
   }
   if (value === 'review' || value === 'reviewing' || value === 'plan-review') {

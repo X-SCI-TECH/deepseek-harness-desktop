@@ -514,11 +514,12 @@ export function reduceSessionEvent(
         }
         else {
           // aborted 等：回合中断，清档回空闲（绝不残留上一档，防止「一直 working」挂死）。
+          // 手动取消是用户主动中断而非失败：不得写入 lastAgentError，否则 use-bubble 下一帧
+          // 判 failed 弹「失败：aborted」toast（kind==='error' 已在上面分支处理，此处到不了；
+          // 旧代码 if (kind === 'error' || kind === 'aborted') 实际只会命中 aborted，
+          // 把取消误记成错误）。lastAgentError 一并清空，保证取消后彻底静默回落空闲。
           state.workStatus = undefined
-          if (kind === 'error' || kind === 'aborted') {
-            const errBody = (data as { reason?: { error?: { message?: string } } }).reason
-            state.lastAgentError = errBody?.error?.message ?? kind
-          }
+          state.lastAgentError = undefined
         }
       }
       break

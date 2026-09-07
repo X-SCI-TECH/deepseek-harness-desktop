@@ -8,6 +8,7 @@ import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react
 import { If } from 'react-if-lite'
 import { PET_STATUSES } from '../hooks/use-pet'
 import {
+  fallbackPresetName,
   isLoopingAnimation,
   pick,
   pickCategoryAction,
@@ -307,9 +308,14 @@ export function Pet(props: PetProps) {
       return undefined
     // 预设配置池条目 = 动画名 = webm 文件名主名；adHoc 已携带动画名时直接命中，
     // 会话状态（waiting/running/review/failed/bubble）经 PRESET_SESSION_ANIMATIONS
-    // 叠加映射到具体动画名（写代码/轻快记录/玩游戏气急败坏…），映射名无资产时
-    // resolvePresetName 返回 null → 保持当前动画。
+    // 叠加映射到具体动画名（写代码/轻快记录/玩游戏气急败坏…）。
     const name = resolvePresetName(activity, pools, assets)
+      // 会话状态（override/props 驱动）解析不到资产时不得静默保持当前动画——旧语义
+      // 会让宠物永久卡在上一个循环上：细分工作档资产缺失的旧预设（e1ff8c1 资产差集
+      // 前的安装）中，会话运行显示待机、拖拽结束后永远循环拖拽动画。改为降级链
+      // （细分工作档 → 粗态写代码 → 待机池，见 fallbackPresetName）；adHoc（点击
+      // 回应/待机插播）缺失仍保持当前动画，避免把一次性风味动画错播成工作/待机动画。
+      ?? (adHoc === null ? fallbackPresetName(activity, pools, assets) : null)
     if (name === null)
       return undefined
     const source = assets[name]

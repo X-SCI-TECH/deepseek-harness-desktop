@@ -159,15 +159,18 @@ describe('petSessionReducer (host)', () => {
     expect(last.payload).toMatchObject({ workStatus: 'error', lastAgentError: 'max-tokens' })
   })
 
-  it('turn/end(aborted) 清档：workStatus 为空（不残留上一档，防止一直 working 挂死）', () => {
+  it('turn/end(aborted) 静默取消：workStatus/lastAgentError/status 均清空（手动取消非失败，不得弹「失败：aborted」）', () => {
     const { reducer, pushes } = collect()
     reducer.create(peer())
     reducer.apply(peer(), ev('turn/start', { turn: 1 }, 1))
     reducer.apply(peer(), ev('tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{}' }, 2))
-    reducer.apply(peer(), ev('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 3))
+    // 核心手动取消会带 reason.error.message（'aborted'）；旧实现把它写进 lastAgentError → use-bubble 判 failed。
+    reducer.apply(peer(), ev('turn/end', { turn: 1, reason: { kind: 'aborted', error: { message: 'aborted' } } }, 3))
     const last = pushes.at(-1)!
     expect(last.payload).toMatchObject({ running: false })
     expect(last.payload.workStatus).toBeUndefined()
+    expect(last.payload.lastAgentError).toBeUndefined()
+    expect(last.payload.status).toBeUndefined()
   })
 
   it('tool/result 的工具级错误不写入 lastAgentError（回合仍在跑时不得判 failed 收起气泡）', () => {
