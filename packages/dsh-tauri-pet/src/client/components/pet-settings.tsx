@@ -95,12 +95,15 @@ function PetCard(props: PetCardProps): ReactElement {
           : null}
       </span>
       <span className="dshp-pet__card-actions">
+        {/* 更新按钮只受更新自身条件约束（busy/下载中），不继承主动作
+            disabled（含已选）：默认宠物已启用时仍必须能更新
+            （update_preset_pet 会先停用、替换安装后再重新启用）。 */}
         {props.onUpdate && props.updateLabel !== undefined
           ? (
               <button
                 type="button"
                 className={updateClassName}
-                disabled={props.disabled || props.updateDisabled === true}
+                disabled={props.updateDisabled === true}
                 onClick={props.onUpdate}
               >
                 {props.updateLabel}
