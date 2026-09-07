@@ -12,8 +12,9 @@ import sidebarStyle from './sidebar.cssr'
  *
  * 结构为官方 SidebarRoot（dsh-client-ui-sidebar 0.1.1-rc.2）的克隆，改动点：
  *   - logoRow 高度 60px → 32px、底部间距 8px → 4px（需求①②）；
- *   - 「新会话」按钮从 logoRow 下方移入**面板区**（需求③），样式改为
- *     workspace 菜单项行样式（需求④，镜像官方 Rows.module.css .sessionRow）；
+ *   - 「新会话」按钮从 logoRow 下方移入**面板区**（需求③），样式镜像官方
+ *     ui-sidebar 的 New Session 按钮（elevated-fill 白底 + 12px 圆角；
+ *     独立类自给自足，不挂 menu-item，避免与面板区条目样式互相覆盖）；
  *   - 面板区 = 新会话菜单项 + 第三方功能项（槽 `sidebar.panel.action`，
  *     list/root，本条目 children 声明，协议⑤，见 PROTOCOL.md）。
  *
@@ -144,7 +145,7 @@ export function SidebarRootClone({ collapsed, width, startSession, toggleSidebar
       <div className="dshp-panel__panel-area">
         <button
           type="button"
-          className={`${'dshp-panel__menu-item'} ${'dshp-panel__new-session'}`}
+          className="dshp-panel__new-session"
           title={t('session.new.label')}
           onClick={() => {
             console.warn('[dsh-tauri-panel] new session requested', { source: 'menu' })

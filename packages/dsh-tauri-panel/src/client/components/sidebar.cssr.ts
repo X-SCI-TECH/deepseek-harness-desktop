@@ -102,20 +102,42 @@ export default b('panel', {
     paddingLeft: '4px',
     paddingRight: 'calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset))',
   }),
+  // 新会话按钮是独立控件，不再挂 .dshp-panel__menu-item（那是面板区第三方功能项
+  // 的行样式，51c0195 拆分样式后 action-item.cssr 后挂载，同特异性下会把本块的
+  // 白底/圆角/描边全部覆盖成透明菜单行）。这里自给自足地镜像官方 ui-sidebar 的
+  // New Session 按钮（.hHd-Xa_newSession：elevated-fill 白底、12px 圆角、
+  // .5px l3 描边、38px 高、500 字重），并补上按钮交互基座
+  // （appearance/cursor/focus-visible/transition）。
   e('new-session', {
+    boxSizing: 'border-box',
+    appearance: 'none',
+    cursor: 'pointer',
+    userSelect: 'none',
     width: '100%',
+    minWidth: 0,
     height: '38px',
+    flex: 'none',
     margin: '0 0 4px',
     padding: '8px 16px',
-    border: '1px solid var(--dsw-alias-border-l2)',
+    border: '.5px solid var(--dsw-alias-border-l3)',
     borderRadius: '12px',
     background: 'var(--dsw-alias-button-elevated-fill)',
+    color: 'var(--dsw-alias-label-primary)',
+    display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     gap: '6px',
+    fontFamily: 'inherit',
+    fontSize: '14px',
     fontWeight: 500,
+    lineHeight: '22px',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    transition: 'background-color .12s var(--ds-ease-in-out), color .12s var(--ds-ease-in-out)',
   }, [
     c('&:hover', { background: 'var(--dsw-alias-button-floating-hover)' }),
+    c('&:focus-visible', { outline: '2px solid var(--dsw-alias-border-focus)', outlineOffset: '-2px' }),
   ]),
   e('region-area', {
     minHeight: 0,
