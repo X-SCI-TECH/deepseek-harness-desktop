@@ -166,7 +166,8 @@ export function poolEntryToStatus(entry: string): string {
  *    雀跃庆祝/垂头叹气冒汗，e1ff8c1 起的新预设资产）。
  * 2. 旧粗态兼容（无细分档的会话展示路径）：running 写代码、review 轻快记录、
  *    failed 玩游戏气急败坏、bubble 鲸鱼吐泡泡特效。
- * 资产缺失时 resolvePresetName 仍返回 null（调用方保持当前动画，不做静默兜底）。
+ * 资产缺失时 resolvePresetName 仍返回 null：会话状态（override/props 驱动）由调用方
+ * 走 fallbackPresetName 降级（避免卡在旧循环），adHoc（点击回应/待机插播）保持当前动画。
  */
 export const PRESET_SESSION_ANIMATIONS: Record<string, string> = {
   // 细分工作状态档位（workStatus）
@@ -218,4 +219,38 @@ export function resolvePresetName(
     return null
   const name = pick(pool)
   return assets[name] !== undefined ? name : null
+}
+
+/**
+ * 会话状态解析不到资产时的降级动画名（与 resolvePresetName 的「保持当前动画」
+ * 语义互补）：resolve 失败若不切换，宠物会永久卡在上一个循环动画上 —— 典型故障
+ * 是细分工作档（thinking/working/result/waiting）资产缺失的旧预设中，会话运行
+ * 显示待机、拖拽结束后永远循环拖拽动画。
+ *
+ * 降级链：
+ * 1. 细分工作档/粗态 running → 粗态「写代码」（旧预设普遍存在，保留「在干活」
+ *    的观感，而非退回待机）；
+ * 2. 其余状态（终态档/待机链）→ 待机池兜底；
+ * 3. 无可播资产时返回 null（调用方保持当前动画）。
+ *
+ * 仅用于会话状态（override/props 驱动）；adHoc（点击回应/待机插播）缺失时
+ * 仍保持当前动画 —— 一次性风味动画不应被错播成工作/待机动画。
+ */
+export function fallbackPresetName(
+  activity: string,
+  pools: { idlePool: readonly string[] },
+  assets: Record<string, string>,
+): string | null {
+  if (activity === 'thinking' || activity === 'working'
+    || activity === 'result' || activity === 'waiting' || activity === 'running') {
+    const running = PRESET_SESSION_ANIMATIONS.running
+    if (running !== undefined && assets[running] !== undefined)
+      return running
+  }
+  if (pools.idlePool.length > 0) {
+    const name = pick(pools.idlePool)
+    if (assets[name] !== undefined)
+      return name
+  }
+  return null
 }

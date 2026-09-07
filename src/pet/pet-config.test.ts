@@ -1,6 +1,7 @@
 import type { PetCategory, PetWeights } from './pet-config'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  fallbackPresetName,
   isLoopingAnimation,
   pick,
   pickCategoryAction,
@@ -188,5 +189,43 @@ describe('resolvePresetName', () => {
   it('returns null when the pool entry is not backed by an asset', () => {
     expect(resolvePresetName('idle', { ...pools, idlePool: ['不存在.webm'] }, assets)).toBeNull()
     expect(resolvePresetName('idle', { ...pools, idlePool: [] }, assets)).toBeNull()
+  })
+})
+
+describe('fallbackPresetName', () => {
+  // 旧预设（e1ff8c1 资产差集前的安装）：无 工作状态-*，但有待机与写代码。
+  const stale: Record<string, string> = {
+    待机呼吸休闲: 'dsh-pet://localhost/maid-deepseek-whale/webm/idle.webm',
+    写代码: 'dsh-pet://localhost/maid-deepseek-whale/webm/code.webm',
+  }
+  const pools = { idlePool: ['待机呼吸休闲'] } as const
+
+  it('降级细分工作档到粗态写代码（资产缺失时不再卡旧循环）', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.0)
+    expect(fallbackPresetName('thinking', pools, stale)).toBe('写代码')
+    expect(fallbackPresetName('working', pools, stale)).toBe('写代码')
+    expect(fallbackPresetName('result', pools, stale)).toBe('写代码')
+    expect(fallbackPresetName('waiting', pools, stale)).toBe('写代码')
+    expect(fallbackPresetName('running', pools, stale)).toBe('写代码')
+    vi.restoreAllMocks()
+  })
+
+  it('细分档资产存在时无需降级（fallback 只作 resolve 失败的后备）', () => {
+    expect(fallbackPresetName('thinking', pools, { '待机呼吸休闲': 'idle.webm', '工作状态-思考冒泡': 'think.webm', '写代码': 'code.webm' })).toBe('写代码')
+  })
+
+  it('终态档/其他状态降到待机池', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.0)
+    expect(fallbackPresetName('success', pools, stale)).toBe('待机呼吸休闲')
+    expect(fallbackPresetName('error', pools, stale)).toBe('待机呼吸休闲')
+    expect(fallbackPresetName('review', pools, stale)).toBe('待机呼吸休闲')
+    expect(fallbackPresetName('failed', pools, stale)).toBe('待机呼吸休闲')
+    expect(fallbackPresetName('bubble', pools, stale)).toBe('待机呼吸休闲')
+    vi.restoreAllMocks()
+  })
+
+  it('待机池也无资产时返回 null（调用方保持当前动画）', () => {
+    expect(fallbackPresetName('working', pools, {})).toBeNull()
+    expect(fallbackPresetName('working', { idlePool: [] }, {})).toBeNull()
   })
 })
