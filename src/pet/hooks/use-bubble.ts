@@ -3,6 +3,7 @@ import type { PetStatus } from './use-pet'
 import { listen } from '@tauri-apps/api/event'
 import { useEffect, useState } from 'react'
 import { toast } from '@/utils/toast'
+import { statusCopy, taskCopy, toolActivityGroup } from './bubble-copy'
 
 export interface BubbleSession {
   [key: string]: unknown
@@ -19,6 +20,15 @@ const FAILED_BUBBLE_TIMEOUT = 4000
 const REVIEW_BUBBLE_TIMEOUT = 2500
 const SUCCESS_TOAST_TIMEOUT = 3000
 const FAILED_PULSE_TTL = 1800
+/**
+ * 终态档（success/error）聚合保持时长：对齐 dsh-pet 的 BUBBLE_DURATION_MS=10000
+ * （终态动画播一次 + 10s 收气泡）语义。不得复用 SUCCESS_TOAST_TIMEOUT(3s)——成功
+ * WebM（如 雀跃庆祝）实际播放时长超过 3s 时，聚合状态提前回落会让 app.tsx 的
+ * useWatch 调 pet.clear() 掐断未播完的动画（用户报告：成功动画没播完就换回待机）。
+ * 动画播完由视频 ended（handleEnded → 清 override）自然回落，toast 收起仍走
+ * scheduleHide 的独立 3s（SUCCESS_TOAST_TIMEOUT），二者互不影响。
+ */
+const TERMINAL_PULSE_TTL = 10000
 /** 会话完成/变空闲后保留的时长：超过即从会话表沉淀，防止 durable subagent 等永不发 remove 的会话无界积累。 */
 const IDLE_SESSION_RETENTION = 5000
 
@@ -68,12 +78,17 @@ const TOOL_ARG_KEYS: Record<string, readonly string[]> = {
   skill: ['name'],
 } as const
 
-/** 状态优先级映射，数值越大优先级越高 */
+/** 状态优先级映射，数值越大优先级越高（对齐 dsh-dafeiyu statePriority：等待>错误>工作>思考>空闲）。 */
 const STATUS_PRIORITY: Record<string, number> = {
-  'waiting': 4,
-  'review': 3,
-  'failed': 2,
-  'running': 1,
+  'waiting': 60,
+  'error': 50,
+  'failed': 45,
+  'review': 40,
+  'working': 30,
+  'result': 25,
+  'thinking': 20,
+  'running': 12,
+  'success': 10,
   'idle': 0,
   'turn': 0,
   'moving-left': 0,
@@ -145,7 +160,15 @@ export function useBubble(): BubbleHandle {
       if (disposed)
         return
       const session = sessions.get(id)
-      if (!session || sessionStatus(session) !== undefined)
+      if (!session)
+        return
+      // 活跃档（think/work/result/waiting/running/review）不沉淀；
+      // 终态档（workStatus success/error）翻开底层：底层空闲（回合完成且无错误残留）才可沉淀。
+      const status = sessionStatus(session)
+      const bottom = sessionStatus(session, true)
+      if (bottom !== undefined)
+        return
+      if (status !== undefined && status !== 'success' && status !== 'error')
         return
 
       removeSessionData(id)
@@ -154,15 +177,22 @@ export function useBubble(): BubbleHandle {
 
     const armPrune = (id: string) => {
       clearTimer(pruneTimers, id)
-      pruneTimers.set(id, window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
         pruneTimers.delete(id)
         pruneSession(id)
-      }, IDLE_SESSION_RETENTION))
+      }, IDLE_SESSION_RETENTION)
+      pruneTimers.set(id, timer)
     }
 
     const scheduleHide = (id: string, current: PetStatus) => {
       clearTimer(hideTimers, id)
-      const timeout = current === 'failed' ? FAILED_BUBBLE_TIMEOUT : current === 'review' ? REVIEW_BUBBLE_TIMEOUT : undefined
+      const timeout = current === 'failed' || current === 'error'
+        ? FAILED_BUBBLE_TIMEOUT
+        : current === 'review'
+          ? REVIEW_BUBBLE_TIMEOUT
+          : current === 'success'
+            ? SUCCESS_TOAST_TIMEOUT
+            : undefined
       const key = toastKeys.get(id)
       if (timeout === undefined || key === undefined)
         return
@@ -180,11 +210,14 @@ export function useBubble(): BubbleHandle {
       const current = sessionStatus(session)
       const previous = previousStatus.get(session.id)
 
-      if (current === 'failed') {
-        if (previous === 'failed' || consumedFailed.has(session.id))
+      if (current === 'failed' || current === 'error' || current === 'success') {
+        if (previous === current || consumedFailed.has(session.id))
           return
 
-        const deadline = Date.now() + FAILED_PULSE_TTL
+        // 终态档脉冲窗口：failed 短 TTL 恢复底层状态；success/error 为终态档，
+        // 保持 TERMINAL_PULSE_TTL（对齐 dsh-pet 10s 收气泡），等动画完整播完再回落空闲。
+        const ttl = current === 'success' || current === 'error' ? TERMINAL_PULSE_TTL : FAILED_PULSE_TTL
+        const deadline = Date.now() + ttl
         failedUntil.set(session.id, deadline)
         clearTimer(pulseTimers, session.id)
 
@@ -195,7 +228,7 @@ export function useBubble(): BubbleHandle {
           clearTimer(pulseTimers, session.id)
           consumedFailed.add(session.id)
           updateAgg()
-        }, FAILED_PULSE_TTL)
+        }, ttl)
 
         pulseTimers.set(session.id, timer)
       }
@@ -231,7 +264,8 @@ export function useBubble(): BubbleHandle {
       }
 
       clearTimer(pruneTimers, session.id)
-      const isTerminal = current === 'failed' || current === 'review'
+      // 终态档（播完即收）：failed/error 失败、review 待审阅、success 完成。
+      const isTerminal = current === 'failed' || current === 'review' || current === 'error' || current === 'success'
       if (!isTerminal) {
         dismissed.delete(session.id)
       }
@@ -246,7 +280,7 @@ export function useBubble(): BubbleHandle {
           isLoading: content.isLoading,
           description: content.description,
           placement: 'top end',
-          variant: content.variant as 'warning' | 'danger' | 'default',
+          variant: content.variant as 'warning' | 'danger' | 'default' | 'success',
           timeout: 0,
           onClose: () => {
             if (toastKeys.get(session.id) === createdKey) {
@@ -340,15 +374,32 @@ function sessionTitle(session: BubbleSession): string {
   if (session.phase === 'user-question' || session.phase === 'blocked')
     return `${LABELS.waitChoice} · ${base}`
   if (session.origin === 'subagent')
-    return `${LABELS.subagent}：${base}`
+    return `${LABELS.subagent} · ${base}`
   return base
 }
 
-/** 提取单个会话的状态（忽略底层恢复逻辑） */
+/** 细分工作状态档位（host reducer workStatus 输出；动画名映射见 pet-config）。 */
+const WORK_STATUSES = ['thinking', 'working', 'result', 'waiting', 'success', 'error'] as const
+
+type WorkStatus = (typeof WORK_STATUSES)[number]
+
+/** 提取单个会话的状态（细分档优先，忽略底层恢复逻辑）。 */
 function sessionStatus(session: BubbleSession, ignoreError = false): PetStatus | undefined {
+  // 细分工作档位（host reducer 权威）：thinking/working/result/waiting/success/error
+  const work = session.workStatus as unknown
+  if (WORK_STATUSES.includes(work as WorkStatus)) {
+    // error/success 是终态档；pulse 过期（ignoreError）后回落底层推导，不残留失败/成功视觉。
+    if (ignoreError && (work === 'error' || work === 'success'))
+      return undefined
+    return work as PetStatus
+  }
+
   const value = session.status ?? session.activity ?? session.phase
 
-  if (!ignoreError && (value === 'failed' || value === 'error' || Boolean(session.lastAgentError))) {
+  // 终态错误判定只在回合已结束（running !== true）时生效：工具级失败/旧快照的
+  // lastAgentError 若与 running=true 并存，说明回合仍在跑（agent 捕获错误继续），
+  // 此时绝不判 failed 收起气泡（用户报告：会话还在跑 toast 却消失了）。
+  if (!ignoreError && session.running !== true && (value === 'failed' || value === 'error' || Boolean(session.lastAgentError))) {
     return 'failed'
   }
   if (value === 'review' || value === 'reviewing' || value === 'plan-review') {
@@ -380,7 +431,7 @@ function statusOf(
 
   for (const session of sessions.values()) {
     let status = sessionStatus(session)
-    if (status === 'failed') {
+    if (status === 'failed' || status === 'error' || status === 'success') {
       const deadline = failedUntil.get(session.id)
       if (deadline === undefined || now >= deadline) {
         status = sessionStatus(session, true) // 底层恢复状态
@@ -392,7 +443,7 @@ function statusOf(
       if (priority > maxPriority) {
         maxPriority = priority
         highestStatus = status
-        if (maxPriority === 4)
+        if (maxPriority === STATUS_PRIORITY.waiting)
           break // 'waiting' 为最高优先级，提前终止遍历
       }
     }
@@ -436,7 +487,7 @@ function toolArgDetail(tool: string, args: unknown): string | undefined {
   return undefined
 }
 
-/** 生成 Toast 渲染数据 */
+/** 生成 Toast 渲染数据（对齐 dsh-dafeiyu：优先失败详情 → 任务文案 → 工具/思考活动 → 档位状态文案）。 */
 function toastContent(session: BubbleSession, status: PetStatus) {
   const getFirstString = (...items: unknown[]): string | undefined => {
     for (const item of items) {
@@ -448,21 +499,24 @@ function toastContent(session: BubbleSession, status: PetStatus) {
   }
 
   const getLiveActivity = (): string | undefined => {
-    if (status !== 'running' || !session.liveActivity || typeof session.liveActivity !== 'object') {
+    if (status !== 'running' && status !== 'thinking' && status !== 'working' && status !== 'result') {
+      return undefined
+    }
+    if (!session.liveActivity || typeof session.liveActivity !== 'object') {
       return undefined
     }
 
     const { kind, text, name, args } = session.liveActivity as Record<string, unknown>
 
     if (kind === 'reasoning' && typeof text === 'string' && text.trim()) {
-      return `思考 · ${sanitizeText(text)}`
+      return IS_ZH ? `思考 · ${sanitizeText(text)}` : `Thought · ${sanitizeText(text)}`
     }
 
     if (kind === 'tool' && typeof name === 'string' && name) {
       const tool = name.toLowerCase()
       const label = TOOL_LABELS[tool]
       if (!label)
-        return `工具调用 · ${name}`
+        return IS_ZH ? `工具调用 · ${name}` : `Tool · ${name}`
 
       const detail = toolArgDetail(tool, args)
       return detail ? `${label} · ${detail}` : label
@@ -473,37 +527,56 @@ function toastContent(session: BubbleSession, status: PetStatus) {
 
   const isSub = session.origin === 'subagent'
   const title = sessionTitle(session)
-  const statusTextMap: Record<PetStatus, string> = {
-    'failed': '失败',
-    'review': '待审阅',
-    'waiting': '等待中',
-    'running': isSub ? '运行中' : '思考中',
-    'idle': '空闲',
-    'turn': '空闲',
-    'moving-left': '空闲',
-    'moving-right': '空闲',
-    'waving': '空闲',
+  // 会话稳定 seed（同会话同档位文案恒定，跨档位切换自然换句；对齐 dsh-dafeiyu statusCopy(seed)）。
+  const seed = session.id
+  const statusTextMap: Record<string, string> = {
+    'think': IS_ZH ? '思考中' : 'Thinking',
+    'thinking': IS_ZH ? '思考中' : 'Thinking',
+    'working': IS_ZH ? '处理中' : 'Working',
+    'result': IS_ZH ? '整理中' : 'Organizing',
+    'waiting': IS_ZH ? '等待中' : 'Waiting',
+    'running': isSub ? (IS_ZH ? '运行中' : 'Running') : (IS_ZH ? '思考中' : 'Thinking'),
+    'review': IS_ZH ? '待审阅' : 'Review',
+    'failed': IS_ZH ? '失败' : 'Failed',
+    'error': IS_ZH ? '出错' : 'Error',
+    'success': IS_ZH ? '已完成' : 'Done',
+    'idle': IS_ZH ? '空闲' : 'Idle',
+    'turn': IS_ZH ? '空闲' : 'Idle',
+    'moving-left': IS_ZH ? '空闲' : 'Idle',
+    'moving-right': IS_ZH ? '空闲' : 'Idle',
+    'waving': IS_ZH ? '空闲' : 'Idle',
   }
 
-  const statusText = statusTextMap[status] ?? '空闲'
+  const statusText = statusTextMap[status] ?? (IS_ZH ? '空闲' : 'Idle')
+  // 档位状态文案：waiting 分 approval/user-question 两档，working 按工具活动分类选句。
+  const fallbackCopy = status === 'waiting'
+    ? (session.phase === 'approval' ? statusCopy('approval', seed) : statusCopy('waiting', seed))
+    : status === 'working'
+      ? statusCopy(toolActivityGroup(String((session.liveActivity as Record<string, unknown> | undefined)?.name ?? '')), seed)
+      : statusCopy(status, seed)
   const description = getFirstString(
+    session.lastAgentError ? (IS_ZH ? `失败：${String(session.lastAgentError)}` : `Failed: ${String(session.lastAgentError)}`) : undefined,
+    taskCopy(session.task as string | undefined), // todo 任务文案：正在处理「xxx」呢
+    getLiveActivity(), // 工具/思考活动详情（保留既有实用信息）
+    fallbackCopy, // 档位状态文案（dsh-dafeiyu statusCopy）
     session.description,
     session.message,
-    session.lastAgentError ? `失败：${String(session.lastAgentError)}` : undefined,
-    getLiveActivity(),
     statusText,
-  ) ?? '会话'
+  ) ?? (IS_ZH ? '会话' : 'Session')
 
-  const variant = (status === 'waiting' || status === 'review')
+  const variant = status === 'waiting' || status === 'review'
     ? 'warning'
-    : status === 'failed'
+    : status === 'failed' || status === 'error'
       ? 'danger'
-      : 'default'
+      : status === 'success'
+        ? 'success'
+        : 'default'
 
   return {
     title,
     description,
-    isLoading: status === 'running',
+    // 工作中平凡态显示 spinner（running/细分工作档位）；等待/终态档不显示 loading。
+    isLoading: status === 'running' || status === 'thinking' || status === 'working' || status === 'result',
     variant,
   }
 }

@@ -8,11 +8,13 @@ import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react
 import { If } from 'react-if-lite'
 import { PET_STATUSES } from '../hooks/use-pet'
 import {
+  isLoopingAnimation,
   pick,
   pickCategoryAction,
   poolEntryToStatus,
   resolvePresetName,
   rollKind,
+  spriteStatusFallback,
 } from '../pet-config'
 
 const PET_BASE_WIDTH = 220
@@ -621,13 +623,6 @@ function isSupportedAsset(value: Asset): boolean {
     && value.spritesheet.length > 0
 }
 
-function isLoopingAnimation(activity: Animation | string): boolean {
-  // moving-* 与 dragging 仅存在于原生拖拽期间（手势状态），持续播放直到拖拽结束。
-  return activity === 'idle' || activity === 'running'
-    || activity === 'moving-left' || activity === 'moving-right'
-    || activity === 'dragging'
-}
-
 function spriteSequence(activity: Animation | string, reducedMotion: boolean, loop: boolean): { frames: Frame[], loopStart: number | null } {
   const idleFrames = IDLE_DURATIONS.map((duration, column) => ({ column, duration: duration * 6, row: 0 }))
   const action = spriteAction(activity)
@@ -643,7 +638,10 @@ function spriteSequence(activity: Animation | string, reducedMotion: boolean, lo
 function spriteAction(activity: Animation | string): Frame[] {
   if (activity === 'idle')
     return IDLE_DURATIONS.map((duration, column) => ({ column, duration, row: 0 }))
-  const mapped = activity === 'turn' ? 'moving-right' : activity === 'bubble' ? 'waving' : activity === 'dragging' ? 'moving-right' : activity
+  // 自定义图集无细分档行：先近似映射到既有行（thinking→waiting 等），
+  // 此类档位对预设宠物（WebM）不影响——它们走 resolvePresetName 直接命中资产。
+  const base = spriteStatusFallback(activity)
+  const mapped = base === 'turn' ? 'moving-right' : base === 'bubble' ? 'waving' : base === 'dragging' ? 'moving-right' : base
   const config = ACTIONS[mapped as keyof typeof ACTIONS] ?? ACTIONS.waving
   return Array.from({ length: config.frames }, (_, column) => ({
     column,
