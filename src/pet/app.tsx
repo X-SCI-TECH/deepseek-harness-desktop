@@ -49,7 +49,7 @@ export function App() {
   )
 
   return (
-    <ToastProvider>
+    <ToastProvider custom>
       {/* 外层只负责铺满透明窗口，保持 pointer-events-none；dragRef 绑定到 Pet 内部
           与 dsh-pet .dsh-pet-hit 一致的唯一可交互命中区。useDrag 负责拖拽/双击，
           useOmitIgnoreCursorEvents 负责穿透恢复，调用方无需管理鼠标流和窗口几何。 */}

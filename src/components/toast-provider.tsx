@@ -8,6 +8,7 @@ import { activeQueues, placements } from '@/utils/toast'
 
 interface ToastProviderProps {
   children?: ReactNode
+  custom?: boolean
 }
 
 /**
@@ -35,28 +36,30 @@ export function ToastProvider(props: ToastProviderProps) {
           placement={placement}
           queue={activeQueues[placement]}
         >
-          {({ toast: item }) => {
-            const content = { ...item.content, ...updates.get(item.key) }
-            return (
-              <Toast toast={item} variant={content?.variant}>
-                <If cond={content?.isLoading} else={<Toast.Indicator variant={content?.variant} />}>
-                  <Toast.Indicator variant={content?.variant}>
-                    <Spinner color="current" size="sm" />
-                  </Toast.Indicator>
-                </If>
-                <Toast.Content>
-                  <If cond={content?.title !== undefined}>
-                    <Toast.Title>{content?.title}</Toast.Title>
-                  </If>
-                  <If cond={content?.description !== undefined}>
-                    <Toast.Description className="line-clamp-2">
-                      {content?.description}
-                    </Toast.Description>
-                  </If>
-                </Toast.Content>
-              </Toast>
-            )
-          }}
+          {props.custom
+            ? ({ toast: item }) => {
+                const content = { ...item.content, ...updates.get(item.key) }
+                return (
+                  <Toast toast={item} variant={content?.variant}>
+                    <If cond={content?.isLoading} else={<Toast.Indicator variant={content?.variant} />}>
+                      <Toast.Indicator variant={content?.variant}>
+                        <Spinner color="current" size="sm" />
+                      </Toast.Indicator>
+                    </If>
+                    <Toast.Content>
+                      <If cond={content?.title !== undefined}>
+                        <Toast.Title>{content?.title}</Toast.Title>
+                      </If>
+                      <If cond={content?.description !== undefined}>
+                        <Toast.Description className="line-clamp-2">
+                          {content?.description}
+                        </Toast.Description>
+                      </If>
+                    </Toast.Content>
+                  </Toast>
+                )
+              }
+            : null}
         </Toast.Provider>
       ))}
       {props.children}
