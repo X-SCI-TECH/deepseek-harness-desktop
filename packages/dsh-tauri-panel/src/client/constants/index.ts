@@ -27,3 +27,19 @@ export const PANEL_DATA_ATTRIBUTES = {
   view: 'data-dshp-panel-view',
   widthHandle: 'data-width-handle',
 } as const
+
+/**
+ * 官方侧栏语义的兼容 class 锚点。桌面端用 priority -1 整槽替换了官方 ui-sidebar，
+ * 而纯 Web 生态插件（dsh-web 的 dsh-task-board / dsh-ssh 等）不接 sidebar.panel.action
+ * 协议，改为按官方 CSS module class 的 **camelCase 子串** 做纯 DOM 注入：
+ *   - `[class*="logoRow"]`（取 logoRow 块的 parentElement 作为注入 root）
+ *   - `button[class*="newSession"]`（入口行插到新会话块与 workspace 浏览器之间）
+ * 克隆侧栏的 class 是 kebab 命名（dshp-panel__logo-row 等），子串不匹配 → 入口永不挂载。
+ * 因此在「等价语义」的克隆元素上追加携带官方 camelCase 子串的 token（不参与任何样式），
+ * 让这类插件的选择器能命中：panel-area 充当新会话所在块（logoRow token），其内的新会话
+ * 菜单项携带 newSession token，注入行落入 panel-area 与 region-area 之间。
+ */
+export const PANEL_SIDEBAR_COMPAT_CLASS = {
+  logoRow: 'dshp-panel-compat-logoRow',
+  newSession: 'dshp-panel-compat-newSession',
+} as const

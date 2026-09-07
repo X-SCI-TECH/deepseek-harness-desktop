@@ -3,7 +3,7 @@ import type { SidebarRootProps } from '../types'
 import { SlotOutlet } from '@deepseek-ai/dsh-client-ui-renderer'
 import { CommentPlus, FishMark, Icon, useMountStyle } from 'dsh-tauri-ui/client'
 import { useEffect, useRef, useState } from 'react'
-import { COLLAPSE_SETTLE_MS, PANEL_DATA_ATTRIBUTES, SCROLLBAR_LINGER_MS, SIDEBAR_STYLE_ID } from '../constants'
+import { COLLAPSE_SETTLE_MS, PANEL_DATA_ATTRIBUTES, PANEL_SIDEBAR_COMPAT_CLASS, SCROLLBAR_LINGER_MS, SIDEBAR_STYLE_ID } from '../constants'
 import sidebarStyle from './sidebar.cssr'
 
 /**
@@ -142,10 +142,10 @@ export function SidebarRootClone({ collapsed, width, startSession, toggleSidebar
           )}
         </button>
       </div>
-      <div className="dshp-panel__panel-area">
+      <div className={`${'dshp-panel__panel-area'} ${PANEL_SIDEBAR_COMPAT_CLASS.logoRow}`}>
         <button
           type="button"
-          className="dshp-panel__new-session"
+          className={`${'dshp-panel__new-session'} ${PANEL_SIDEBAR_COMPAT_CLASS.newSession}`}
           title={t('session.new.label')}
           onClick={() => {
             console.warn('[dsh-tauri-panel] new session requested', { source: 'menu' })
