@@ -75,10 +75,18 @@ const REV_PARSE_ARGS = [
   'info/exclude',
 ]
 
-/** realpathSync 安全包装：路径不存在时原样返回。macOS 上 /var → /private/var 的 symlink 在这里归一。pathe resolve 统一正斜杠。 */
+/**
+ * realpathSync 安全包装：路径不存在时原样返回。macOS 上 /var → /private/var 的
+ * symlink 在这里归一。用 `.native` 而非 plain realpathSync 是 Windows 的硬要求：
+ * libuv 的 JS-path 实现不会展开 8.3 短名（TEMP=C:\Users\RUNNER~1\... 原样保留），
+ * 而 `.native`（GetFinalPathNameByHandle）展开为磁盘上的长名——git 的
+ * --show-toplevel 输出的正是长名。若这里不展开，工作区以短名/长名两次调用
+ * gitWorkspace → 相对 .git 解析出不同字符串 → ensureRepository 的 gitDir 恒等
+ * 检查永远失败（TURNREWIND_GIT_REPOSITORY）。pathe resolve 统一正斜杠。
+ */
 function safeRealpath(p: string): string {
   try {
-    return resolve(realpathSync(p))
+    return resolve(realpathSync.native(p))
   }
   catch {
     return resolve(p)
@@ -92,9 +100,9 @@ function resolveInfo(requestedDir: string, stdout: string): GitWorkspaceInfo | u
   // P2-11: macOS 上 /var → /private/var 的 symlink 会让两次调用（一次用
   // mkdtemp 路径、一次用 realpath 后的 store.workspaceDir）产生不同字符串
   // 的 gitDir —— ensureRepository 的恒等检查会永远失败。所有绝对路径统一
-  // 通过 realpathSync 归一化 symlink 差异，保证同一 workspace 的两次调用
-  // 产生完全一致的路径。--git-dir 等 relative path 以 requestedDir（git
-  // 运行的 CWD）为 base 解析。
+  // 通过 safeRealpath（realpathSync.native，展开 symlink 与 Windows 8.3 短名）
+  // 归一化差异，保证同一 workspace 的两次调用产生完全一致的路径。--git-dir
+  // 等 relative path 以 requestedDir（git 运行的 CWD）为 base 解析。
   const workspaceRoot = safeRealpath(resolve(requestedDir, lines[1]!))
   const resolvedGitDir = safeRealpath(resolve(requestedDir, lines[2]!))
   const resolvedCommonDir = safeRealpath(resolve(requestedDir, lines[3]!))

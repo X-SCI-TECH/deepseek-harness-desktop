@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'pathe'
 import { it } from 'vitest'
-import { captureSnapshot, classifyPathChange, createSnapshotStore, currentState, diffAgainstDisk, gitAvailable, probeWorkspace, restorePath, snapshotDiff, snapshotFileDiff, stateAt, workspaceKey } from '../src/host/service/git-snapshot'
+import { captureSnapshot, classifyPathChange, createSnapshotStore, currentState, diffAgainstDisk, gitAvailable, probeWorkspace, restorePath, snapshotDiff, snapshotFileDiff, stateAt, workspaceHash, workspaceKey } from '../src/host/service/git-snapshot'
 import { completeUndoTransaction, createOperation, getLatestTurn, insertTurn, openLedger, settleInterruptedTurn, settleTurn } from '../src/host/service/ledger'
 import { initGitWorkspace, resolvedRealPath } from './git-test-utils.js'
 
@@ -408,7 +408,32 @@ it('probes git availability once per process', async () => {
 it('folds path case on case-insensitive platforms only', () => {
   // Windows and macOS (APFS default) treat the two spellings as one
   // workspace; Linux keeps them distinct.
-  assert.equal(workspaceKey('C:\Proj\One', 'win32'), workspaceKey('c:\proj\one', 'win32'))
+  assert.equal(workspaceKey('C:\\Proj\\One', 'win32'), workspaceKey('c:\\proj\\one', 'win32'))
   assert.equal(workspaceKey('/Users/dev/Proj', 'darwin'), workspaceKey('/Users/dev/proj', 'darwin'))
   assert.notEqual(workspaceKey('/home/dev/Proj', 'linux'), workspaceKey('/home/dev/proj', 'linux'))
+})
+
+it('maps different spellings of one directory to a single workspace identity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'turnrewind-key-spelling-'))
+  const workspace = join(root, 'workspace')
+  try {
+    await initGitWorkspace(workspace)
+    // CI temp dirs are reachable under different spellings: macOS /var vs
+    // /private/var (os.tmpdir sits behind that symlink) and Windows 8.3
+    // short names (TEMP=C:\Users\RUNNER~1\... on the runner). The caller's
+    // spelling and the canonical on-disk spelling must produce one key and
+    // one snapshot-repo hash, or a workspace splits into two domains.
+    assert.equal(workspaceKey(workspace), workspaceKey(resolvedRealPath(workspace)))
+    assert.equal(workspaceHash(workspace), workspaceHash(resolvedRealPath(workspace)))
+
+    // A link alias points at the same directory: junctions need no
+    // elevation on Windows, plain symlinks cover POSIX.
+    const alias = join(root, 'workspace-alias')
+    await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.equal(workspaceKey(alias), workspaceKey(workspace))
+    assert.equal(workspaceHash(alias), workspaceHash(workspace))
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

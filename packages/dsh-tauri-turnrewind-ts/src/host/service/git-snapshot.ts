@@ -31,6 +31,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmdirSync,
   rmSync,
@@ -345,15 +346,46 @@ function assertSafePath(workspaceDir: string, path: string): string {
   return target
 }
 
+/** Windows 路径分隔符（源码里避免裸控制字符，与 guard.ts 同一写法）。 */
+const WINDOWS_PATH_SEPARATOR = String.fromCharCode(92)
+
 /**
  * Canonical workspace identity shared by the ledger key, the snapshot repo
- * hash and maintenance purges: case-folded on case-insensitive platforms
- * (Windows NTFS, macOS APFS default) so one directory cannot spawn two
- * snapshot domains; Linux stays byte-exact. `platform` is injectable for tests.
+ * hash, workspace locks and maintenance purges. `resolve()` alone is not an
+ * identity: the same directory is reachable under different spellings —
+ * macOS /var → /private/var (os.tmpdir lives behind that symlink) and
+ * Windows 8.3 short names (CI runners export TEMP as
+ * C:\Users\RUNNER~1\... while the on-disk name is runneradmin) — and one
+ * workspace must not split into two snapshot domains. realpathSync folds
+ * every spelling of an existing path onto its on-disk form, the same
+ * canonical spelling gitWorkspace reports for the worktree, so keys written
+ * from a raw cwd and keys computed from the probed worktree always agree;
+ * case-insensitive platforms (Windows NTFS, macOS APFS default) then fold
+ * casing so one directory cannot spawn two snapshot domains, and Linux
+ * stays byte-exact. Unresolvable paths (missing or unreadable) keep the
+ * resolved spelling so the key stays deterministic instead of throwing; a
+ * later call once the directory exists canonicalizes. `platform` remains
+ * injectable for tests.
  */
 export function workspaceKey(workspaceDir: string, platform: string = process.platform): string {
   const normalized = resolve(workspaceDir)
-  return platform === 'win32' || platform === 'darwin' ? normalized.toLowerCase() : normalized
+  // realpathSync.native wants native separators: pathe emits forward slashes
+  // (and can mangle bare drive roots), so rebuild the Windows form first.
+  // `.native` (not plain realpathSync) is load-bearing on Windows: libuv's
+  // JS-path realpath keeps 8.3 short names as-is (TEMP=C:\Users\RUNNER~1\...)
+  // while `realpathSync.native` (GetFinalPathNameByHandle) expands them to
+  // the on-disk long name — verified against a short-spelled git worktree
+  // where the two spellings must fold onto ONE key or every look-up splits.
+  let canonical = normalized
+  try {
+    const native = platform === 'win32' ? normalized.replaceAll('/', WINDOWS_PATH_SEPARATOR) : normalized
+    canonical = resolve(realpathSync.native(native))
+  }
+  catch {
+    // Missing or unreadable path: the resolved spelling is the best
+    // available key and stays stable across calls.
+  }
+  return platform === 'win32' || platform === 'darwin' ? canonical.toLowerCase() : canonical
 }
 
 export function workspaceHash(workspaceDir: string): string {

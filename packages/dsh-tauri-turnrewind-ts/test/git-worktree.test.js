@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'pathe'
+import { join } from 'pathe'
 import { it } from 'vitest'
 import { captureSnapshot, createSnapshotStore, gitRef, restorePath, stateAt } from '../src/host/service/git-snapshot'
 import { commitAll, gitOutput, initGitWorkspace, resolvedRealPath, runGit } from './git-test-utils.js'
@@ -67,7 +67,10 @@ it('isolates linked worktrees of one repository into separate snapshot stores', 
     await mkdir(join(linked, 'sub'))
     const subStore = createSnapshotStore(data, join(linked, 'sub'))
     assert.equal(subStore.repoDir, linkedStore.repoDir)
-    assert.equal(subStore.workspaceDir, resolve(linked))
+    // store.workspaceDir is the canonical on-disk root (same spelling
+    // gitWorkspace reports); the raw mkdtemp spelling may differ on CI
+    // (macOS /var vs /private/var, Windows 8.3 RUNNER~1 vs runneradmin).
+    assert.equal(subStore.workspaceDir, resolvedRealPath(linked))
   }
   finally {
     await rm(root, { recursive: true, force: true })

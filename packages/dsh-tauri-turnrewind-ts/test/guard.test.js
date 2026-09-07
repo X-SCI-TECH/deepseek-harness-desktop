@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, parse, resolve } from 'pathe'
+import { dirname, join, parse } from 'pathe'
 import { it } from 'vitest'
 import { createSnapshotStore, probeWorkspace } from '../src/host/service/git-snapshot'
 import { isSystemSensitiveWorkspace } from '../src/host/service/guard'
@@ -64,7 +64,11 @@ it('canonicalizes a session cwd below the worktree root to the Git root', async 
     const nestedStore = createSnapshotStore(join(root, 'data'), nested)
     const rootStore = createSnapshotStore(join(root, 'data'), workspace)
     assert.equal(nestedStore.repoDir, rootStore.repoDir)
-    assert.equal(nestedStore.workspaceDir, resolve(workspace))
+    // store.workspaceDir is the canonical on-disk worktree root (the same
+    // spelling gitWorkspace reports). Compare against the canonical form:
+    // CI temp dirs are reachable under a raw spelling that differs (macOS
+    // /var vs /private/var, Windows 8.3 RUNNER~1 vs runneradmin).
+    assert.equal(nestedStore.workspaceDir, resolvedRealPath(workspace))
   }
   finally {
     await rm(root, { recursive: true, force: true })
