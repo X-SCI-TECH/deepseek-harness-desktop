@@ -4,6 +4,11 @@ import type { Translate } from './protocol'
 
 export interface McpRow {
   id: string
+  /** Configuration layer; global rows are inherited and read-only by default. */
+  layer?: 'global' | 'profile'
+  shadowed?: boolean
+  globalError?: string
+  scope?: 'global' | 'profile'
   serverName: string
   transport: 'stdio' | 'streamable-http'
   disabled: boolean
@@ -16,7 +21,7 @@ export interface McpRow {
 }
 
 export interface ImportedServerView {
-  agent: 'claude-code' | 'codex'
+  agent: 'claude-code' | 'codex' | 'cursor' | 'gemini'
   name: string
   transport: 'stdio' | 'streamable-http'
   command?: string

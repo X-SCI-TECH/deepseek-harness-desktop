@@ -27,6 +27,15 @@ export interface McpSaveResponse {
 /** GET /mcp 响应。 */
 export interface McpListResponse {
   servers: McpRow[]
+  global?: McpRow[]
+  profile?: McpRow[]
+}
+
+/** POST /mcp/check connectivity response. */
+export interface McpConnectivityResponse {
+  ok: boolean
+  latencyMs?: number
+  error?: string
 }
 
 /** GET /import/scan 响应。 */
