@@ -16,7 +16,7 @@ export default b('extension', [
   ]),
   e('list-head', {
     display: 'flex',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: '7px',
     padding: '0 2px',
     marginTop: '2px',
