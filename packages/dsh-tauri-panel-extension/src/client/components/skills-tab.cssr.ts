@@ -143,4 +143,25 @@ export default b('extension', [
   }, [
     c('&:hover', { textDecoration: 'underline' }),
   ]),
+  // 技能编辑器弹窗的「预览 / 编辑」分段切换（skills-tab.tsx editor modal）。
+  e('segments', {
+    display: 'inline-flex',
+    gap: '4px',
+    border: `1px solid ${border}`,
+    borderRadius: '8px',
+    padding: '3px',
+    background: layer1,
+  }),
+  e('segment', {
+    border: '0',
+    borderRadius: '6px',
+    padding: '4px 14px',
+    background: 'transparent',
+    color: secondary,
+    font: 'inherit',
+    fontSize: '12px',
+    cursor: 'pointer',
+  }, [
+    c('&[data-active="true"]', { background: hover, color: primary, fontWeight: '600' }),
+  ]),
 ])

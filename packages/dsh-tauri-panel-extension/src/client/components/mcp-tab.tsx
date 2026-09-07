@@ -334,7 +334,7 @@ export function McpTab({ t }: McpTabProps): ReactElement {
       <div className="dshp-extension__list-head">
         <h3>{t('mcpTab')}</h3>
         {servers !== null && <span className="dshp-extension__count">{servers.length}</span>}
-        <select aria-label={t('scope')} value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
+        <select className="dshp-extension__scope" aria-label={t('scope')} value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
           <option value="all">{t('scopeAll')}</option>
           <option value="global">{t('global')}</option>
           <option value="profile">{t('profile')}</option>
