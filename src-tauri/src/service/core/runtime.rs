@@ -67,13 +67,16 @@ try {
     }
   };
   if (existsSync(nodeModules)) {
+    // 目录链接（pnpm 布局 / 桌面端为插件建立的 junction）在 withFileTypes 下是
+    // symbolic link 而非 directory，必须一并纳入，否则会漏掉链接形式的原生包。
+    const isPackageDir = (entry) => entry.isDirectory() || entry.isSymbolicLink();
     for (const entry of readdirSync(nodeModules, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
+      if (!isPackageDir(entry)) continue;
       if (entry.name === '.bin' || entry.name === '.pnpm') continue;
       if (entry.name.startsWith('@')) {
         const scope = join(nodeModules, entry.name);
         for (const inner of readdirSync(scope, { withFileTypes: true })) {
-          if (inner.isDirectory()) collect(join(scope, inner.name), entry.name + '/' + inner.name);
+          if (isPackageDir(inner)) collect(join(scope, inner.name), entry.name + '/' + inner.name);
         }
         continue;
       }
