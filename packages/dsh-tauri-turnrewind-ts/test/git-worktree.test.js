@@ -94,7 +94,7 @@ it('captures and restores through alternates when the source objects are packed'
     const before = await captureSnapshot(store, 'refs/turnrewind/packed-before', 'before')
 
     await writeFile(join(linked, 'packed.txt'), 'changed\n')
-    const after = await captureSnapshot(store, 'refs/turnrewind/packed-after', 'after', before.commit)
+    const after = await captureSnapshot(store, 'refs/turnrewind/packed-after', 'after', 'refs/turnrewind/packed-before')
     assert.notEqual(before.commit, after.commit)
 
     // The baseline blob is the source's packed object, read through the

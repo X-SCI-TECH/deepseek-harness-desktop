@@ -221,6 +221,7 @@ export function UndoCommandView(props: CommandViewProps): React.ReactElement {
         const payload = await res.json().catch(() => ({}) as Record<string, unknown>)
         if (stop)
           return
+        const httpFailure = !res.ok && res.status !== 404
         const next = resolvePlanStatus({ ok: res.ok, status: res.status }, payload as { status?: string, resultText?: string | null })
         if (next.status !== null && next.status !== 'pending')
           setPlanStatus(next.status)
@@ -232,7 +233,9 @@ export function UndoCommandView(props: CommandViewProps): React.ReactElement {
           haltPolling()
           return
         }
-        failures = next.status === 'pending' ? 0 : failures + 1
+        // 非 404 的 HTTP 错误（500/503 等）也计入失败预算，避免无限轮询；
+        // 只有真实 pending 负载才清零失败计数。
+        failures = (!httpFailure && next.status === 'pending') ? 0 : failures + 1
         if (failures >= MAX_POLL_FAILURES)
           haltPolling()
       }

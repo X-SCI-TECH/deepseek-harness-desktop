@@ -60,7 +60,7 @@
     "dev": "tsdown --watch",
     "prepublishOnly": "pnpm build",
     "start": "tsx src/index.ts",
-    "test": "vitest run test --testTimeout=120000",
+    "test": "vitest run test --testTimeout=120000 --maxWorkers=1",
     "typecheck": "tsc"
   },
   "dependencies": {

@@ -675,8 +675,12 @@ export async function applyUndo(
     }
   }
   else if (parsed.turnId) {
+    // Reserve before the first await so a concurrent direct-execute cannot
+    // build a plan against disk state this invocation is about to change.
+    runtime.undoing = true
     target = getTurn(runtime.db, parsed.turnId)
     if (target && !await turnRefsExist(runtime.store, target)) {
+      runtime.undoing = false
       return {
         kind: 'error',
         text: `The snapshot data for turn ${parsed.turnId} no longer exists (the snapshot repository was previously wiped); its changes can no longer be undone.`,
@@ -684,6 +688,7 @@ export async function applyUndo(
     }
   }
   else {
+    runtime.undoing = true
     // Walk newest-first and skip turns whose snapshot refs died with a wiped
     // snapshot repository, marking them so later /undo runs never re-check.
     for (const candidate of listReversibleTurns(runtime.db, invocation.agent.session.id, workspaceKey)) {
@@ -695,6 +700,7 @@ export async function applyUndo(
     }
   }
   if (!target) {
+    runtime.undoing = false
     const latest = getLatestTurnSummary(runtime.db, invocation.agent.session.id, workspaceKey)
     const detail = latest
       ? ` Latest turn ${latest.turn_id} is ${latest.status} (reversible=${latest.reversible}).`
@@ -703,14 +709,17 @@ export async function applyUndo(
   }
   const ownershipError = assertSessionOwner(target, invocation.agent)
   if (ownershipError) {
+    runtime.undoing = false
     abortPendingPlanClaim()
     return ownershipError
   }
   if (target.workspace_key !== workspaceKey) {
+    runtime.undoing = false
     abortPendingPlanClaim()
     return { kind: 'error', text: 'The selected turn belongs to another workspace.' }
   }
   if (!['settled', 'interrupted'].includes(target.status) || target.reversible !== 1 || !target.before_ref || !target.after_ref) {
+    runtime.undoing = false
     abortPendingPlanClaim()
     return { kind: 'error', text: 'The selected turn does not have a complete reversible snapshot.' }
   }

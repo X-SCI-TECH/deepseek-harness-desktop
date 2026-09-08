@@ -32,7 +32,7 @@ it('collects a full read-only doctor report for an eligible workspace', async ()
     const store = createSnapshotStore(dataRoot, workspace)
     const before = await captureSnapshot(store, 'refs/turnrewind/doctor-before', 'before')
     await writeFile(join(workspace, 'a.txt'), 'two')
-    await captureSnapshot(store, 'refs/turnrewind/doctor-after', 'after', before.commit)
+    await captureSnapshot(store, 'refs/turnrewind/doctor-after', 'after', 'refs/turnrewind/doctor-before')
     // The ledger rows are written from the caller's raw spelling while the
     // doctor resolves the key through the canonical probe result. CI temp
     // dirs make the two spellings differ (macOS /var vs /private/var,
