@@ -40,7 +40,7 @@ import {
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
-import { dirname, join, relative, resolve, sep } from 'pathe'
+import { basename, dirname, join, relative, resolve, sep } from 'pathe'
 import {
   BAK_SUFFIX,
   GIT_PROBE_RETRY_MS,
@@ -350,6 +350,50 @@ function assertSafePath(workspaceDir: string, path: string): string {
 const WINDOWS_PATH_SEPARATOR = String.fromCharCode(92)
 
 /**
+ * Detect whether the volume holding `dir` folds case. macOS APFS is
+ * case-insensitive by default but can be formatted case-sensitive; on such
+ * volumes `Repo` and `repo` are distinct directories and must not collapse
+ * into one workspace key (the ledger/lock/snapshot domain would collide and
+ * a purge could delete the other workspace's state). The probe is cached per
+ * directory; unresolvable/synthetic paths fall back to the platform default
+ * so tests can keep passing without a real filesystem.
+ */
+const caseSensitivityCache = new Map<string, boolean>()
+
+function isCaseInsensitiveDir(dir: string, platform: string): boolean {
+  const cached = caseSensitivityCache.get(dir)
+  if (cached !== undefined)
+    return cached
+  let result: boolean
+  try {
+    const base = basename(dir)
+    const parent = dirname(dir)
+    const index = base.search(/[A-Za-z]/u)
+    if (index === -1) {
+      result = platform === 'darwin'
+    }
+    else {
+      const character = base[index]!
+      const toggled = character === character.toLowerCase() ? character.toUpperCase() : character.toLowerCase()
+      const variant = join(parent, `${base.slice(0, index)}${toggled}${base.slice(index + 1)}`)
+      const originalStat = lstatSync(dir)
+      if (existsSync(variant)) {
+        const variantStat = lstatSync(variant)
+        result = originalStat.dev === variantStat.dev && originalStat.ino === variantStat.ino
+      }
+      else {
+        result = false
+      }
+    }
+  }
+  catch {
+    result = platform === 'darwin'
+  }
+  caseSensitivityCache.set(dir, result)
+  return result
+}
+
+/**
  * Canonical workspace identity shared by the ledger key, the snapshot repo
  * hash, workspace locks and maintenance purges. `resolve()` alone is not an
  * identity: the same directory is reachable under different spellings —
@@ -385,7 +429,11 @@ export function workspaceKey(workspaceDir: string, platform: string = process.pl
     // Missing or unreadable path: the resolved spelling is the best
     // available key and stays stable across calls.
   }
-  return platform === 'win32' || platform === 'darwin' ? canonical.toLowerCase() : canonical
+  if (platform === 'win32')
+    return canonical.toLowerCase()
+  if (platform === 'darwin')
+    return isCaseInsensitiveDir(canonical, platform) ? canonical.toLowerCase() : canonical
+  return canonical
 }
 
 export function workspaceHash(workspaceDir: string): string {

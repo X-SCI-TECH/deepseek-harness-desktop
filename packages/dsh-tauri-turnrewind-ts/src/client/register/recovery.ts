@@ -67,6 +67,7 @@ function ensureRecoveryDialog(): RecoveryElements {
 
   function hide(): void {
     backdrop.dataset.visible = 'false'
+    a11y?.restoreFocus()
   }
   closeButton.addEventListener('click', hide)
   backdrop.addEventListener('click', (event) => {

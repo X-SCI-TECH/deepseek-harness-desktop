@@ -57,7 +57,7 @@ function runGitSync(workspaceDir: string, args: string[]): GitSyncResult {
 // pre-step、命令处理都会重复触发解析。TTL 兼顾正确性（新分支/worktree 切换后
 // 元数据仍会刷新）与事件循环友好（冷缓存时一轮同步调用 <100ms）。
 const WORKSPACE_CACHE_TTL_MS = 60 * 1000
-const workspaceCache = new Map<string, { at: number, info: GitWorkspaceInfo | undefined }>()
+const workspaceCache = new Map<string, { at: number, info: GitWorkspaceInfo | undefined, gitMissing: boolean }>()
 
 /**
  * 单次 rev-parse 同时解析全部元数据：原先每次冷解析要 6 个 spawnSync，
@@ -133,7 +133,7 @@ const refreshInflight = new Map<string, Promise<void>>()
 function refreshWorkspaceAsync(requestedDir: string): void {
   if (refreshInflight.has(requestedDir))
     return
-  const task = new Promise<GitWorkspaceInfo | undefined>((resolvePromise) => {
+  const task = new Promise<{ info: GitWorkspaceInfo | undefined, gitMissing: boolean }>((resolvePromise) => {
     const child = spawn('git', ['-c', 'core.quotepath=false', ...REV_PARSE_ARGS], {
       cwd: requestedDir,
       env: { ...process.env },
@@ -145,7 +145,7 @@ function refreshWorkspaceAsync(requestedDir: string): void {
         return
       settled = true
       child.kill('SIGKILL')
-      resolvePromise(undefined)
+      resolvePromise({ info: undefined, gitMissing: false })
     }, SYNC_GIT_TIMEOUT_MS)
     child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
     child.on('error', (error: NodeJS.ErrnoException) => {
@@ -155,20 +155,22 @@ function refreshWorkspaceAsync(requestedDir: string): void {
       clearTimeout(timeout)
       if (error.code === 'ENOENT')
         gitExecutableMissing = true
-      resolvePromise(undefined)
+      resolvePromise({ info: undefined, gitMissing: error.code === 'ENOENT' })
     })
     child.on('close', (code) => {
       if (settled)
         return
       settled = true
       clearTimeout(timeout)
-      resolvePromise(code === 0
+      resolvePromise({ info: code === 0
         ? resolveInfo(requestedDir, Buffer.concat(chunks).toString('utf8'))
-        : undefined)
+        : undefined, gitMissing: false })
     })
-  }).then((info) => {
+  }).then((result) => {
     refreshInflight.delete(requestedDir)
-    workspaceCache.set(requestedDir, { at: Date.now(), info })
+    // git 缺失结果不落缓存，理由同上：PATH 修复后应能立即重新探测。
+    if (!result.gitMissing)
+      workspaceCache.set(requestedDir, { at: Date.now(), info: result.info, gitMissing: false })
   }).catch(() => {
     refreshInflight.delete(requestedDir)
   })
@@ -190,11 +192,13 @@ export function gitWorkspace(workspaceDir: string): GitWorkspaceInfo | undefined
   // 冷未命中：一次同步 rev-parse。
   const result = runGitSync(requestedDir, REV_PARSE_ARGS)
   if (result.error?.code === 'ENOENT') {
+    // ENOENT 不缓存：git 可能在运行中被安装/PATH 被修复，缓存会让后续调用
+    // 一直误报 unavailable；每次都重新探测（spawn ENOENT 本身极快）。
     gitExecutableMissing = true
     return undefined
   }
   const info = result.ok ? resolveInfo(requestedDir, result.stdout ?? '') : undefined
-  workspaceCache.set(requestedDir, { at: Date.now(), info })
+  workspaceCache.set(requestedDir, { at: Date.now(), info, gitMissing: false })
   evictOldest()
   return info
 }

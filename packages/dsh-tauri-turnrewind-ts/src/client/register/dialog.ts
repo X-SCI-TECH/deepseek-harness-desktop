@@ -88,6 +88,7 @@ function ensureDialog(): DialogElements {
 
   function hide(): void {
     backdrop.dataset.visible = 'false'
+    a11y?.restoreFocus()
   }
   button.addEventListener('click', hide)
   backdrop.addEventListener('click', (event) => {

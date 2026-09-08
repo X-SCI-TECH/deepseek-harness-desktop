@@ -325,12 +325,6 @@ export interface PlanFormatOptions {
   withDiffs?: boolean
 }
 
-export interface PlanFormatOptions {
-  preview?: boolean
-  dryRun?: boolean
-  withDiffs?: boolean
-}
-
 /** P1-4：计划输出的规模上限——清单条数与逐文件 diff 都有界，防 UI/上下文膨胀。 */
 const MAX_LISTED_FILES = 200
 const MAX_DIFF_FILES = 50

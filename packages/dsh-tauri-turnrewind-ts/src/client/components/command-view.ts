@@ -154,7 +154,7 @@ export function UndoCommandView(props: CommandViewProps): React.ReactElement {
   const hasDiff = withDiff.length > 0
   // 无文件清单的输出（--doctor 报告、多行错误说明）走纯文本正文：
   // 否则这类卡片只剩第一行摘要，报告主体被整个吞掉。
-  const plainLines = parsed.files.length === 0 ? text.replace(/^[^\n]*\n/u, '').split('\n') : []
+  const plainLines = parsed.files.length === 0 && text.includes('\n') ? text.slice(text.indexOf('\n') + 1).split('\n') : []
   // 静态报告行：永不重排/增删；id 预计算，避免 JSX key 直接引用数组下标。
   const plainRows = plainLines.map((line, index) => ({ id: `${index}:${line}`, line }))
   const summary = parsed.summary || (state === 'error' ? tr('cardFailed') : state === 'running' ? tr('cardRunning') : tr('cardDone'))
