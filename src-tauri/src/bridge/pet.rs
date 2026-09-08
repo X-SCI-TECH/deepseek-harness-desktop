@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use zip::ZipArchive;
 use futures_util::StreamExt;
 
@@ -393,6 +393,45 @@ pub fn hide_pet(app: AppHandle) -> Result<PetStatus, String> {
     let status = status_from_setting(&config::get_store_dat_setting(&app));
     emit_pet_status(&app, &status);
     Ok(status)
+}
+
+/// pet 窗口点击穿透开关；返回实际生效的穿透态，前端据此对齐本地 optimistic 状态。
+///
+/// # 为什么不直接用 `setIgnoreCursorEvents`（issue #437）
+///
+/// Linux 下 tao 处理 `CursorIgnoreEvents(true)` 时对 GtkWindow 的底层 GdkWindow
+/// 直接 `unwrap()`（tao 0.35.3 event_loop.rs:457，截至 0.37.0 上游仍未修复），
+/// 窗口从未显示（未 realize，GdkWindow 不存在）即 panic；panic 发生在 GTK
+/// 事件循环回调里无法回卷 → SIGABRT，整个桌面端崩溃。而本应用在 setup 阶段
+/// 总会预创建隐藏的 pet 窗口（`desktop::pet::init_pet_window`，全新安装默认
+/// 不启用桌宠则永远不 show），其 webview 仍会加载 pet.html 并在收到首个全局
+/// 鼠标事件时请求穿透——这正是 v0.11.0 初始化阶段必崩的路径。
+///
+/// 因此所有穿透切换必须经由此命令：窗口不可见（GTK 未 map，必然未 realize）
+/// 时吞掉 `true` 请求并返回未生效；`false`（恢复接收事件）在 tao 走无 unwrap
+/// 的分支，始终安全转发。GTK 窗口 hide 只 unmap 不 unrealize，首次 show 之后
+/// GdkWindow 持续存在，故「可见 ⇒ 转发安全」。
+#[tauri::command]
+pub fn set_pet_ignore_cursor_events(window: WebviewWindow, ignore: bool) -> Result<bool, String> {
+    if window.label() != pet_window::PET_WINDOW_LABEL {
+        return Err(
+            "PET_WINDOW_LABEL_MISMATCH: this command is restricted to the pet window".to_string(),
+        );
+    }
+    if ignore {
+        let visible = window
+            .is_visible()
+            .map_err(|error| format!("PET_WINDOW_STATE_FAILED: {error}"))?;
+        if !visible {
+            // 隐藏窗口的穿透无意义：吞掉并上报「未生效」，避免 tao 在未
+            // realize 窗口上的 unwrap panic（issue #437）。
+            return Ok(false);
+        }
+    }
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|error| format!("PET_CURSOR_IGNORE_FAILED: {error}"))?;
+    Ok(ignore)
 }
 
 /// 返回来源对应的真实目录；chat 直接使用 `$DSH_HOME/pets`，codex 直接使用
