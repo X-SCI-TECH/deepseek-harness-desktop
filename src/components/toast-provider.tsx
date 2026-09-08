@@ -12,8 +12,8 @@ interface ToastProviderProps {
 }
 
 /**
- * 应用共用的 HeroUI queue/provider。桌宠窗口仅通过 hideCloseButton 使用
- * 自定义渲染分支，仍复用这里的 queues 与 src/utils/toast.ts API。
+ * 应用共用的 HeroUI queue/provider。桌宠窗口通过 custom 渲染精简气泡，
+ * 主窗口保留 HeroUI 默认的操作和关闭按钮。
  */
 export function ToastProvider(props: ToastProviderProps) {
   const [updates, setUpdates] = useState(() => new Map<string, ToastUpdateEvent['options']>())
@@ -35,6 +35,7 @@ export function ToastProvider(props: ToastProviderProps) {
           key={placement}
           placement={placement}
           queue={activeQueues[placement]}
+          className="[&_[data-frontmost=true]_[data-slot=toast-close]]:pointer-events-auto [&_[data-frontmost=true]_[data-slot=toast-close]]:opacity-100"
         >
           {props.custom
             ? ({ toast: item }) => {
