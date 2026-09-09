@@ -24,15 +24,25 @@ export interface WorkspaceSnapshot {
   items: readonly WorkspaceView[]
 }
 
+/**
+ * 输入条草稿状态。字段名跨核心版本不一致，两个都声明为可选：
+ *   - rc.x 及更早：`imageIds`
+ *   - 0.1.5-alpha.1 起：`attachmentIds`
+ * 消费方必须经 `utils/draft-attachments.ts` 的兼容读取函数访问，不能直接取单一字段。
+ */
 export interface InputState {
   draft: string
-  imageIds: string[]
+  imageIds?: string[]
+  attachmentIds?: string[]
 }
 
+/** 输入条动作面；同样按核心版本二选一（rc.x 的 addImages/removeImage ↔ alpha 的 addAttachments/removeAttachment）。 */
 export interface InputActions {
   setDraft: (text: string) => void
-  addImages: (ids: string[]) => boolean
-  removeImage: (id: string) => void
+  addImages?: (ids: string[]) => boolean
+  removeImage?: (id: string) => void
+  addAttachments?: (ids: string[]) => boolean
+  removeAttachment?: (id: string) => void
   submit: () => void
 }
 
