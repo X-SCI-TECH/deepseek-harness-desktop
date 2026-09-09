@@ -230,3 +230,4 @@ export function mountRecoveryStyles(): () => void {
 }
 
 export { mountCommandViewStyles } from './command-view'
+export { buildTurnUndoStyleNodes, mountTurnUndoStyles } from './turn-undo'

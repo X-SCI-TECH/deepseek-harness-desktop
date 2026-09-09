@@ -10,16 +10,19 @@ import type { ClientContext } from 'dsh-tauri/client'
 import type { LocaleKey } from './locales'
 import { compat, createLifecycleController } from 'dsh-tauri/client'
 import { setCardTranslator, setSubmitLine } from './components/command-view'
-import { TURNREWIND_HTTP_BASE, TURNREWIND_LOCALE_NS, TURNREWIND_POLL_INTERVAL_MS, TURNREWIND_POLL_STOP_MS } from './constants'
+import { TURN_UNDO_EFFECT, TURNREWIND_HTTP_BASE, TURNREWIND_LOCALE_NS, TURNREWIND_POLL_INTERVAL_MS, TURNREWIND_POLL_STOP_MS } from './constants'
 import { LOCALES } from './locales'
 import { registerCommandView } from './register/command-view'
 import { disposeDialog, listNotices, showDialog } from './register/dialog'
 import { disposeRecoveryDialog, openRecoveryDialog } from './register/recovery'
-import { mountCommandViewStyles, mountDialogStyles, mountRecoveryStyles } from './styles'
+import { registerTurnUndo } from './register/turn-action'
+import { mountCommandViewStyles, mountDialogStyles, mountRecoveryStyles, mountTurnUndoStyles } from './styles'
 import { createHeadsUpTracker, resolveSessionsService } from './utils/heads-up'
 import { parseUndoOutput, resolvePlanStatus } from './utils/parse'
 import { setRecoveryOpener } from './utils/recovery-opener'
 import { resolveOwnerSessionId } from './utils/session'
+import { resolveCommandRunner } from './utils/turn-action'
+import { setTurnActionChannel } from './utils/turn-action-channel'
 
 export { TURNREWIND_API_PREFIX } from '../shared/constants'
 export type { LocaleKey, ParsedUndoFile, ParsedUndoOutput, PlanStatusResolution } from './types'
@@ -43,6 +46,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => mountDialogStyles(), 'turnrewind dialog styles')
   ctx.effect(() => mountCommandViewStyles(), 'turnrewind command-view styles')
   ctx.effect(() => mountRecoveryStyles(), 'turnrewind recovery styles')
+  ctx.effect(() => mountTurnUndoStyles(), 'turnrewind turn undo styles')
 
   const t = (key: LocaleKey): string => {
     const active = locale.getLocale().active
@@ -113,6 +117,29 @@ export function apply(ctx: ClientContext): void {
   if (!sessions)
     console.warn('[turnrewind] sessions service unavailable; the unsupported heads-up dialog is disabled')
   const headsUp = createHeadsUpTracker()
+
+  // ————————————————— turn 尾部「撤销本轮」按钮 —————————————————
+  // 槽位 props 带数字 turn 号，拼成账本 turn id 后经官方命令通道执行
+  // `/undo <turn-id>`——与手敲命令完全同一条链路（预览卡、冲突校验、plan
+  // 绑定全部复用）。会话服务或命令通道缺失时整块跳过，老宿主优雅降级。
+  const currentSessionId = (): string | null => {
+    if (!sessions)
+      return null
+    const state = sessions.list.getSnapshot() as { current?: unknown }
+    return typeof state.current === 'string' && state.current.length > 0 ? state.current : null
+  }
+  const commandRunner = resolveCommandRunner(cx, t) ?? resolveCommandRunner(ctx, t)
+  if (sessions && commandRunner) {
+    ctx.effect(() => setTurnActionChannel({
+      translate: t,
+      sessionId: currentSessionId,
+      runCommand: line => commandRunner(line, currentSessionId()),
+    }), 'turnrewind turn action channel')
+    ctx.effect(() => registerTurnUndo(ctx as unknown as Parameters<typeof registerTurnUndo>[0]), TURN_UNDO_EFFECT)
+  }
+  else {
+    console.warn('[turnrewind] turn-tail undo button disabled: the host exposes no remote.commands.execute (or no sessions service)')
+  }
 
   ctx.effect(() => {
     if (!sessions)

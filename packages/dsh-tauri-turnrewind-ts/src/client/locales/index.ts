@@ -33,6 +33,9 @@ export type LocaleKey
     | 'recoveryClose'
     | 'recoveryActionFailed'
     | 'recoveryEmpty'
+    | 'turnUndoLabel'
+    | 'turnUndoBusy'
+    | 'turnUndoFailed'
 
 const DICT_ZH: Record<LocaleKey, string> = {
   dialogTitle: 'Turn 撤销不可用',
@@ -65,6 +68,9 @@ const DICT_ZH: Record<LocaleKey, string> = {
   recoveryClose: '关闭',
   recoveryActionFailed: '操作失败：',
   recoveryEmpty: '当前没有需要恢复的工作区。',
+  turnUndoLabel: '撤销本轮',
+  turnUndoBusy: '提交中…',
+  turnUndoFailed: '撤销命令提交失败：',
 }
 
 const DICT_EN: Record<LocaleKey, string> = {
@@ -98,6 +104,9 @@ const DICT_EN: Record<LocaleKey, string> = {
   recoveryClose: 'Close',
   recoveryActionFailed: 'The action failed: ',
   recoveryEmpty: 'No workspaces need recovery right now.',
+  turnUndoLabel: 'Undo this turn',
+  turnUndoBusy: 'Submitting…',
+  turnUndoFailed: 'Could not submit the undo command: ',
 }
 
 export const LOCALES = { zh: DICT_ZH, en: DICT_EN }

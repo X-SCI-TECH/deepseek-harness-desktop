@@ -26,6 +26,18 @@ export const COMMAND_VIEW_KEY = 'undo'
 /** effect 标签（诊断/日志）。 */
 export const COMMAND_VIEW_EFFECT = 'turnrewind command view'
 
+/** 完成 turn 的尾部槽位（DSH 会话视图对每个完成的 turn 渲染，props 带 turn 号）。 */
+export const TURN_UNDO_SLOT = 'conversation.chat.turnTail'
+
+/** turn 尾部按钮在槽内的注册 id。 */
+export const TURN_UNDO_ID = 'turnrewind-turn-undo'
+
+/** keyed slot 的 key（同一 slot 的多个组件按 key 区分）。 */
+export const TURN_UNDO_KEY = 'turn-undo'
+
+/** effect 标签（诊断/日志）。 */
+export const TURN_UNDO_EFFECT = 'turnrewind turn action'
+
 /** locale 命名空间（不可用弹窗双语）。 */
 export const TURNREWIND_LOCALE_NS = 'dsh-tauri-turnrewind'
 
