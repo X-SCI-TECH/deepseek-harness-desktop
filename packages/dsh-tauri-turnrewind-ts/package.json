@@ -1,7 +1,7 @@
 {
   "name": "dsh-tauri-turnrewind",
   "type": "module",
-  "version": "0.2.0-beta.1",
+  "version": "0.3.1",
   "description": "Local turn-aware workspace undo for DeepSeek Harness",
   "author": "yingtianlan",
   "license": "MIT",
