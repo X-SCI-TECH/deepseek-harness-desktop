@@ -33,13 +33,14 @@ export const name = 'dsh-tauri-turnrewind'
 
 /**
  * 需要的客户端服务：slots（卡片点位）、sessions（状态轮询/弹窗）、locale（双语）、
- * remote（在 turn 尾部按钮里执行 `/undo` 命令）。
+ * remote + remote.commands（在消息动作条的撤销按钮里执行 `/undo` 命令）。
  *
- * `remote` 必须在这里声明：cordis 的 context 代理对未 inject 的服务属性**直接抛**
- * （`cannot get property "remote" without inject`），而 apply 里会读它——漏声明会
- * 让整个客户端插件 apply 失败（界面报 "Failed to load plugins"）。
+ * `remote` 与 `remote.commands` 都是**必须列出的 inject 键**（核心
+ * dsh-client-ui-plan / dsh-client-ui-commands 同款）：cordis 的 context 代理对
+ * 未 inject 的服务属性访问会直接抛，只 inject `remote` 而读 `ctx.remote.commands`
+ * 同样会抛——漏声明会让按钮整块降级（首版就是漏了这两个键）。
  */
-export const inject = ['slots', 'sessions', 'locale', 'remote']
+export const inject = ['slots', 'sessions', 'locale', 'remote', 'remote.commands']
 
 /**
  * 插件体：安装 locale 与卡片/弹窗注册。
@@ -125,15 +126,31 @@ export function apply(ctx: ClientContext): void {
     console.warn('[turnrewind] sessions service unavailable; the unsupported heads-up dialog is disabled')
   const headsUp = createHeadsUpTracker()
 
-  // ————————————————— turn 尾部「撤销本轮」按钮 —————————————————
-  // 槽位 props 带数字 turn 号，拼成账本 turn id 后经官方命令通道执行
-  // `/undo <turn-id>`——与手敲命令完全同一条链路（预览卡、冲突校验、plan
+  // ————————————————— 消息动作条「撤销本轮」按钮 —————————————————
+  // 动作条 owner 只给 messageId，组件靠会话快照反查 turn 号后经官方命令通道
+  // 执行 `/undo <turn-id>`——与手敲命令完全同一条链路（预览卡、冲突校验、plan
   // 绑定全部复用）。会话服务或命令通道缺失时整块跳过，老宿主优雅降级。
+  // 从 sessions.list 快照里取当前会话 id：正常是 `current`；个别加载时序下它还是
+  // undefined，则用 currentId 兜底；再不行且 byId 里只有一个会话，就用那一个。
+  // （正常路径用不到它：组件优先用框架标准 kit 给的 props.sessionId。）
+  const sessionIdFromState = (state: unknown): string | null => {
+    const value = state as { current?: unknown, currentId?: unknown, byId?: Record<string, unknown> } | undefined
+    for (const candidate of [value?.current, value?.currentId]) {
+      if (typeof candidate === 'string' && candidate.length > 0)
+        return candidate
+    }
+    const byId = value?.byId
+    if (byId !== null && byId !== undefined && typeof byId === 'object') {
+      const keys = Object.keys(byId)
+      if (keys.length === 1)
+        return keys[0]!
+    }
+    return null
+  }
   const currentSessionId = (): string | null => {
     if (!sessions)
       return null
-    const state = sessions.list.getSnapshot() as { current?: unknown }
-    return typeof state.current === 'string' && state.current.length > 0 ? state.current : null
+    return sessionIdFromState(sessions.list.getSnapshot())
   }
   const commandRunner = resolveCommandRunner(cx, t) ?? resolveCommandRunner(ctx, t)
   if (sessions && commandRunner) {
@@ -142,10 +159,20 @@ export function apply(ctx: ClientContext): void {
       sessionId: currentSessionId,
       runCommand: line => commandRunner(line, currentSessionId()),
     }), 'turnrewind turn action channel')
-    ctx.effect(() => registerTurnUndo(ctx as unknown as Parameters<typeof registerTurnUndo>[0]), TURN_UNDO_EFFECT)
+    ctx.effect(() => {
+      try {
+        return registerTurnUndo(ctx as unknown as Parameters<typeof registerTurnUndo>[0])
+      }
+      catch (error) {
+        // 槽位注册失败（宿主槽位形态变化）只降级为「没有按钮」，绝不能让
+        // apply 抛——那会让整个客户端插件报 Failed to load plugins。
+        console.error('[turnrewind] undo action slot registration failed:', error)
+        return () => {}
+      }
+    }, TURN_UNDO_EFFECT)
   }
   else {
-    console.warn('[turnrewind] turn-tail undo button disabled: the host exposes no remote.commands.execute (or no sessions service)')
+    console.warn('[turnrewind] undo action button disabled: the host exposes no remote.commands.execute (or no sessions service)')
   }
 
   ctx.effect(() => {
