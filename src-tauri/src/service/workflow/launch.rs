@@ -356,6 +356,19 @@ pub async fn launch(app_handle: tauri::AppHandle) -> Result<(), String> {
     // 不阻断启动（回落 web 档案的老行为）。
     crate::service::profile::ensure_first_run_desktop_profile(&app_handle);
 
+    // 核心 bundle 层自愈（issue #452）：当前档案的 `dsh.profile.bundles` 必须带
+    // 桌面端内嵌 web UI 依赖的 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`
+    // （顺序即补丁层应用顺序）。档案目录被 CLI/外部初始化过（`dsh plugin add`
+    // 对无清单目录只写 dsh-base）、首次初始化中途失败、用户手工编辑清单都会剥掉
+    // web 层，此时宿主不提供 webServer/connection/webRuntime，内置插件与市场插件
+    // 全部停在 pending，服务启动必然失败——日志只显示「N entries did not
+    // activate / waiting for service: webServer」，看不出根因。缺失时按官方 web
+    // 模板补齐（只补不删，用户插件条目原样保留），本轮启动即可恢复。必须在
+    // 任何插件操作与 spawn 之前做。最佳努力：失败只告警，不阻断启动。
+    if let Err(e) = crate::service::profile::ensure_active_profile_core_bundles(&app_handle) {
+        log::warn!("ensure active profile core bundles failed: {e}");
+    }
+
     // 安全模式：安全档案的契约是「只加载 web 模板核心 bundles、不带任何用户插件」，
     // 但档案目录一旦存在就绝不重建（用户可能反复进出安全模式），而内置插件自愈与
     // 首次引导安装都作用于「当时的活动档案」，于是安全档案里会累积用户插件——它们
