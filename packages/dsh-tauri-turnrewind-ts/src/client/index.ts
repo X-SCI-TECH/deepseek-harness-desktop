@@ -31,8 +31,15 @@ export { parseUndoOutput, resolveOwnerSessionId, resolvePlanStatus }
 /** 插件显示名（诊断元数据）。 */
 export const name = 'dsh-tauri-turnrewind'
 
-/** 需要的客户端服务：slots（卡片点位）、sessions（状态轮询/弹窗）、locale（双语）。 */
-export const inject = ['slots', 'sessions', 'locale']
+/**
+ * 需要的客户端服务：slots（卡片点位）、sessions（状态轮询/弹窗）、locale（双语）、
+ * remote（在 turn 尾部按钮里执行 `/undo` 命令）。
+ *
+ * `remote` 必须在这里声明：cordis 的 context 代理对未 inject 的服务属性**直接抛**
+ * （`cannot get property "remote" without inject`），而 apply 里会读它——漏声明会
+ * 让整个客户端插件 apply 失败（界面报 "Failed to load plugins"）。
+ */
+export const inject = ['slots', 'sessions', 'locale', 'remote']
 
 /**
  * 插件体：安装 locale 与卡片/弹窗注册。

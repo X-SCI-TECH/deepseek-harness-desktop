@@ -35,8 +35,16 @@ export type CommandRunner = (line: string, sessionId: string | null) => Promise<
  * 宿主未暴露该能力时返回 null，调用方据此不注册槽位（老版本宿主优雅降级）。
  */
 export function resolveCommandRunner(ctx: unknown, translate: Translate): CommandRunner | null {
-  const remote = (ctx as { remote?: { commands?: { execute?: unknown } } } | undefined)?.remote
-  const commands = remote?.commands
+  let commands: { execute?: unknown } | undefined
+  try {
+    commands = (ctx as { remote?: { commands?: { execute?: unknown } } } | undefined)?.remote?.commands
+  }
+  catch {
+    // 未在 inject 里声明 `remote`、或该服务尚未就绪时，cordis 的 context 代理对属性
+    // 访问会直接抛。这里吞掉并降级为「不注册槽位」——按钮不出现，好过整个客户端插件
+    // apply 失败（界面会报 Failed to load plugins）。
+    return null
+  }
   const execute = commands?.execute
   if (typeof execute !== 'function' || commands === undefined)
     return null

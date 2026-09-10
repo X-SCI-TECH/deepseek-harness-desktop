@@ -32,6 +32,17 @@ it('resolves the command runner only when the host exposes remote.commands.execu
   assert.equal(typeof resolveCommandRunner({ remote: { commands: { execute: async () => {} } } }, translate), 'function')
 })
 
+it('degrades to null when the cordis proxy rejects the property access', () => {
+  // 未在 inject 里声明 remote 时，cordis 的 context 代理读该属性会直接抛。
+  // 这个抛绝不能冒泡到 apply（线上表现为整个客户端插件 "Failed to load plugins"）。
+  const throwing = new Proxy({}, {
+    get(_target, key) {
+      throw new Error(`cannot get property "${String(key)}" without inject`)
+    },
+  })
+  assert.equal(resolveCommandRunner(throwing, translate), null)
+})
+
 it('runs the command against the given session and surfaces host failures', async () => {
   const calls = []
   const ctx = {
