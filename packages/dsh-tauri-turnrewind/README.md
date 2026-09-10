@@ -53,6 +53,10 @@ DSH 桌面端的 **turn 级工作区撤销**：每一轮对话结束时，在对
 - 该轮没有任何文件变化 → 不出现卡片。
 - 撤销成功后同一 turn 不能重复撤销。
 - 撤销前若发现文件在 turn 结束后又被改动过 → **拒绝执行并列出冲突文件**，不覆盖任何文件。
+- 该轮仍在运行中（after 快照未结算）→ 拒绝撤销并说明原因。
+- **不在撤销范围内**的文件会如实标注（不静默漏掉）：超大文件未纳入快照、嵌套 Git 仓库被跳过时，
+  卡片下方给出中性提示行（鼠标悬停可看具体路径）。
+- 快照被回收（超出保留范围 / 快照仓因超限被重建）→ 该轮显示「已过期」原因，撤销按钮禁用。
 - 工作区不是 Git 仓库 → 点「撤销」弹出说明弹窗：
 
 ```text
@@ -67,7 +71,9 @@ DSH 桌面端的 **turn 级工作区撤销**：每一轮对话结束时，在对
 $DSH_HOME/dsh-tauri-turnrewind/
 ├─ workspaces/<sha256(worktree 根)[0:24]>.git/   # 每个 worktree 一个私有快照仓（bare + core.worktree）
 │     └─ refs/turnrewind/<sessionId>/<turn>/<before|after>
-└─ sessions/<sessionId>.json                     # 每会话账本（原子写）
+├─ workspaces/<hash>.git.json                     # 快照仓代数（重建后轮换，旧记录据此过期）
+├─ workspaces/<hash>.git.exclude.json             # 排除清单（超大文件 / 嵌套仓库，每次复检）
+└─ sessions/<sessionId>.json                      # 每会话账本（原子写）
 ```
 
 - **快照域 = Git worktree 根**：会话 cwd 是子目录时归并到根，同一仓库共享一个快照域。
@@ -77,24 +83,39 @@ $DSH_HOME/dsh-tauri-turnrewind/
 - **差异**：`git diff --numstat` 取行数，两侧路径集合推导新增（A）/修改（M）/删除（D）。
 - **撤销**：M/D 由 `git checkout <before> -- <path>` 还原，A 删除文件并清理变空的父目录。
 - **冲突预检**：`git diff <afterCommit> -- <paths>`（与快照写入共用同一套换行/属性归一化，
-  CRLF 工作区不会被误判）+ 删除态的存在性检查（用户重建的同名文件 git diff 看不见）。
+  CRLF 工作区不会被误判）+ 删除态的存在性检查（用户重建的同名文件 git diff 看不见）+
+  路径安全（父级符号链接/非目录、非空目录占位）。全部在**动文件之前**完成。
 - **忽略规则**：完全委托源仓库（`.gitignore` / global excludes），并镜像源仓库的
   `core.autocrlf` / `core.eol` / `core.symlinks` 与 `.git/info/exclude`，
   保证「比较」与「恢复」跟用户仓库语义一致。
+- **并发**：捕获、结算、容量治理、撤销全部走**同一工作区级 FIFO 队列**——私有仓的 index
+  与 refs 是共享可变状态，并发就会撞 `index.lock` 或读到半更新的 index。
+- **容量治理**（每个工作区每进程一次，在首次捕获的串行区内）：
+  先 `git prune --expire=now` 回收不可达对象（实时读数每 1.5s 都在产生它们，而 `gc.auto=0`），
+  私有仓超过 2048 MB 时整体隔离改名 → 轮换代数 → 删除隔离目录。
+- **嵌套 Git 仓库**：自动跳过并标注。有界预扫（深度 ≤2 / ≤2000 目录）+ `git add` 报错兜底；
+  这些目录里的改动**不在撤销范围内**，卡片如实提示——gitlink 指针变化会造成「撤销成功但目录内容没变」的假象。
 
 ## 边界与已知限制
 
 - **Git 是硬前置**：非 Git 目录不建快照，只提供说明弹窗；家目录、家目录祖先、
-  盘根、UNC 共享根一律拒绝（`TURNREWIND_UNSAFE_WORKSPACE`）。
-- 上限：单文件 64 MB、单 turn 5000 文件、单快照 512 MB；超限该 turn 记 `unavailable`
-  （卡片显示原因、撤销禁用），**不阻断** Agent turn。
-- 账本保留每会话最近 200 条 turn 记录，超出丢弃最早记录。
+  盘根、UNC 共享根一律拒绝（`TURNREWIND_UNSAFE_WORKSPACE`）；
+  PATH 上没有 git 与「不是 Git 仓库」分开报（`TURNREWIND_GIT_UNAVAILABLE`）。
+- 上限：单文件 64 MB、单 turn 5000 文件、单快照 512 MB、私有仓 2048 MB。
+  **超总量时先排除最大的若干文件（≤200 个）再重试**，并把它们记进「不在撤销范围内」的提示；
+  超限文件过多或排除后仍超限，该 turn 才记 `unavailable`（卡片显示原因、撤销禁用），
+  **不阻断** Agent turn。
+- **保留策略**：每会话最近 **50 轮**保持可撤销；更老的记录转为「已过期」终态
+  （清空文件清单与 refs，卡片给出原因），账本最多保留 **200 条**，超出丢弃最早记录。
 - 私有仓自包含（不用 alternates 借源仓库对象）：首轮会把工作区内容复制进私有仓，
   受源仓库 ignore 规则约束（`node_modules/` 等天然排除）。
 - **接管 `turnTail` 槽的后果**：官方 `ui-deliverables` 的 “Files changed” 行不再渲染，
   其「点文件名在右侧栏预览」的行为随之消失（需求已确认接受）。若之后要保留点击，
   把文件行接到 `TurnTailOwnerProps.openFile` 即可（一行）。
 - 未做：redo、父对话递归撤销、保留策略设置面、恢复围栏、撤销后给模型的一次性提示注入。
+  从归档 demo 提取但**按需求方裁决延后**的项（敏感文件提示、弹窗焦点陷阱、账本版本备份、
+  工作区漂移绑定、中断撤销日志等）记录在
+  [`docs/plugins/11.优化计划.turnrewind实现.md`](../../docs/plugins/11.优化计划.turnrewind实现.md) §13.3。
 - **运行中提示条的取数成本**：宿主在 turn 进行期间每 1.5s 跑一次 `git add --all` +
   `git diff`（`add` 借用私有 index 的 stat 缓存，通常是增量），turn 一结束立即停表；
   开销随仓库规模增长，大仓库上首轮较慢。
@@ -105,16 +126,22 @@ $DSH_HOME/dsh-tauri-turnrewind/
 GET  /api/turnrewind/summary?sessionId=<id>
   → 200 { sessionId, isGit, workspaceRoot, unavailableReason,
           turns: [{ turn, fileCount, insertions, deletions, undoneAt, unavailable,
-                    truncated, files: [{ path, status, insertions, deletions, binary }] }] }
+                    truncated, files: [{ path, status, insertions, deletions, binary }],
+                    skippedOversized: [path], skippedNestedRepos: [path] }] }
 
 GET  /api/turnrewind/live?sessionId=<id>
   → 200 { active, turn, fileCount, insertions, deletions }   # 宿主内存读数，不跑 git
 
 POST /api/turnrewind/undo   { sessionId, turn }
   → 200 { ok: true, restored: [...], removed: [...], failed: [...] }
-  → 409 { error: "TURNREWIND_CONFLICT", conflicts: [{ path, reason }] }
+  → 409 { error: "TURNREWIND_CONFLICT" | "TURNREWIND_EXPIRED" | "TURNREWIND_TURN_ACTIVE"
+                | "TURNREWIND_ALREADY_UNDONE" | "TURNREWIND_GIT_REQUIRED"
+                | "TURNREWIND_UNSAFE_PATH" | "TURNREWIND_NON_EMPTY_DIR", conflicts: [...] }
   → 403 / 404 / 400
 ```
+
+`skippedOversized` / `skippedNestedRepos` 每条记录最多回传 20 个路径（载荷有界），
+卡片按**数量**呈现、路径放 `title`；未知的原因码在客户端**原样显示**（不吞掉、不编文案）。
 
 变更路由仅接受回环调用；连接信任边界经可选的 `connection` 服务校验（缺席时降级为回环校验）。
 
@@ -145,6 +172,10 @@ pnpm build            # 根构建：prebuild 部署插件到 src-tauri/resources
 
 测试覆盖：工作区资格与路径守卫、快照增删改与二进制、**用户仓库零污染**、
 CRLF/属性往返对称（恢复后与 before 快照树逐字节等价）、冲突预检（含「用户重建已删除文件」）、
-撤销全路径、运行中实时读数（含本轮新建文件，且与最终 after 差异文件数一致）、
-账本原子写与淘汰与并发串行、卡片状态机与计数/文件名纯函数、
-卡片与提示条的 css-render 形态（hover 换行、配色、几何）。
+撤销全路径（含代数不符 / refs 消失 → 过期终态、轮次仍在跑 → 拒绝）、
+运行中实时读数（含本轮新建文件，且与最终 after 差异文件数一致）、
+捕获限额（超限排除重试、嵌套仓库自动跳过与报错兜底）、容量治理
+（prune 只清不可达对象、超限整仓重建 + 代数轮换、排除清单复检、不碰用户仓库）、
+工作区队列（FIFO 不重叠 / 跨工作区不阻塞 / 队尾出队）、
+账本原子写与保留淘汰、卡片状态机与计数/文件名/原因码纯函数、
+卡片与提示条的 css-render 形态（hover 换行、配色、几何、提示行分级）。

@@ -44,7 +44,24 @@ export { createTurnRewindHooks } from './host/hooks'
 export type { TurnRewindHooks } from './host/hooks'
 export { buildRoutes } from './host/routes'
 export { createTurnCapture } from './host/service/capture'
-export { ledgerPath, readLedger, recordTurn, writeLedger } from './host/service/ledger'
-export { captureSnapshot, diffTurnChanges, snapshotStoreFor, turnRef } from './host/service/snapshot'
+export { applyRetention, ledgerPath, markTurnExpired, readLedger, recordTurn, writeLedger } from './host/service/ledger'
+export { assertSafeParents, resolveInsideWorkspace } from './host/service/paths'
+export { createWorkspaceQueue } from './host/service/queue'
+export { enforceWorkspaceRetention, ensureWorkspaceRetention, readExclusions, repositorySizeMb, writeExclusions } from './host/service/retention'
+export {
+  captureSnapshot,
+  conflictPaths,
+  deleteRefs,
+  diffTurnChanges,
+  ensureSnapshotRepo,
+  liveDiff,
+  readGenerationFor,
+  readRefCommit,
+  restoreTurnChanges,
+  rotateGeneration,
+  scanNestedRepos,
+  snapshotStoreFor,
+  turnRef,
+} from './host/service/snapshot'
 export { undoTurn } from './host/service/undo'
-export { isSystemSensitivePath, probeWorkspace, workspaceHash } from './host/service/workspace'
+export { clearWorkspaceProbeCache, isSystemSensitivePath, probeWorkspace, workspaceHash } from './host/service/workspace'

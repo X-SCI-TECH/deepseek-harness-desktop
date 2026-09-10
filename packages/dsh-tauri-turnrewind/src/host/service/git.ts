@@ -47,7 +47,10 @@ function execGit(cwd: string, args: string[], options: GitRunOptions): Promise<G
       (error, stdout, stderr) => {
         if (error) {
           const message = String(stderr || error.message || error).trim()
-          resolve({ ok: false, error: message })
+          // code 是「诊断」而非「结果」：ENOENT 表示 PATH 上没有 git，
+          // 与「目录不是 Git 仓库」是两种完全不同的用户指引，必须分开上报。
+          const code = (error as NodeJS.ErrnoException).code
+          resolve({ ok: false, error: message, ...(typeof code === 'string' ? { code } : {}) })
           return
         }
         resolve({ ok: true, out: String(stdout ?? '') })
@@ -82,4 +85,20 @@ export async function resolveSourceCommonDir(worktree: string): Promise<string |
     return null
   // `--git-common-dir` 可能是相对 worktree 的路径（如 `.git`）。
   return value
+}
+
+/**
+ * 回收私有仓里不可达的 loose object（`git prune --expire=now`）。
+ *
+ * 来源：`git add --all` 每次都会把变化后的内容写成 blob，而运行中的实时读数每 1.5s
+ * 就跑一次——中间版本的 blob 没有任何 ref 可达。我们又把 `gc.auto` 关成了 0
+ * （避免后台回收与撤销抢锁），所以必须显式回收，否则私有仓只涨不降。
+ * 只删不可达对象，`refs/turnrewind/*` 链上的对象不受影响。
+ *
+ * @param store - 私有快照仓。
+ * @returns 是否执行成功（失败只影响体积，调用方按 best-effort 处理）。
+ */
+export async function pruneLooseObjects(store: SnapshotStore): Promise<boolean> {
+  const result = await gitInSnapshot(store, ['prune', '--expire=now'])
+  return result.ok
 }

@@ -27,7 +27,7 @@ import {
 import { text, useLocale } from '../locales'
 import { ensureSummary, requestUndo, retrySummaryForTurn, useTurnrewindSession } from '../store'
 import countsStyle from '../styles/counts.cssr'
-import { cardTitle, fileListWindow, formatCounts, formatTotals, resolveCardState } from '../utils/format'
+import { cardTitle, fileListWindow, formatCounts, formatTotals, reasonKey, resolveCardState } from '../utils/format'
 import { ChangeCounts } from './change-counts'
 import { GitRequiredDialog } from './git-required-dialog'
 import cardStyle from './turn-changes-card.cssr'
@@ -87,6 +87,19 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
   const title = record !== null
     ? cardTitle(record, name => text('editedOne', { name }), count => text('editedMany', { count }))
     : text('unavailableTitle')
+
+  /**
+   * 原因码 → 人话。已知码走文案键；未知码（内核/宿主更新）原样显示——宁可显示一个
+   * 生码，也不能显示空白或假装成功。
+   */
+  const explain = (reason: string | null | undefined): string => {
+    const key = reasonKey(reason)
+    return key !== null ? text(key) : (reason ?? '')
+  }
+  const unavailableReason = card.kind === 'failed' || card.kind === 'unavailable' ? card.reason : null
+  // 「不在撤销范围内」的路径：宿主回传的条数有上限，因此只报数量，路径放在 title 里备查。
+  const skippedOversized = record?.skippedOversized ?? []
+  const skippedNestedRepos = record?.skippedNestedRepos ?? []
 
   /*
     TODO(open-file): 「点击打开文件」暂时停用（需求方要求），当前卡片只展示 +xx -x。
@@ -155,9 +168,7 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
                   )
                 : (
                     <span className="dshp-turnrewind__hint-text">
-                      {gitRequired
-                        ? text('unavailableGitDesc')
-                        : text('unavailableReason', { reason: card.kind === 'failed' || card.kind === 'unavailable' ? (card.reason ?? '') : '' })}
+                      {gitRequired ? text('unavailableGitDesc') : explain(unavailableReason)}
                     </span>
                   )}
             </span>
@@ -222,9 +233,25 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
           </button>
         )}
 
+        {/* 「不在撤销范围内」的路径必须如实标注：静默漏掉会让用户以为撤销是完整的。 */}
+        {(skippedOversized.length > 0 || skippedNestedRepos.length > 0) && (
+          <div className="dshp-turnrewind__notice dshp-turnrewind__notice--skip">
+            {skippedOversized.length > 0 && (
+              <div data-skipped="oversized" title={skippedOversized.join('\n')}>
+                {text('skippedOversized', { count: skippedOversized.length })}
+              </div>
+            )}
+            {skippedNestedRepos.length > 0 && (
+              <div data-skipped="nested" title={skippedNestedRepos.join('\n')}>
+                {text('skippedNestedRepos', { count: skippedNestedRepos.length })}
+              </div>
+            )}
+          </div>
+        )}
+
         {state.undoError !== null && (
           <div className="dshp-turnrewind__notice dshp-turnrewind__notice--error">
-            <div>{text('undoFailed', { reason: state.undoError })}</div>
+            <div>{text('undoFailed', { reason: explain(state.undoError) })}</div>
             {state.undoConflicts.length > 0 && (
               <>
                 <div>{text('conflictTitle')}</div>

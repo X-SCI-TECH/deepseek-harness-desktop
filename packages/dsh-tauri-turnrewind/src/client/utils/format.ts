@@ -6,8 +6,39 @@
  * 但读屏/悬浮提示要拿到同一条「+N -M」文本。
  */
 
-import type { SessionSummary, TurnCardState, TurnFileChange, TurnSummary } from '../types'
-import { TURNREWIND_REASON_GIT_REQUIRED } from '../../shared/constants'
+import type { LocaleKey, SessionSummary, TurnCardState, TurnFileChange, TurnSummary } from '../types'
+import {
+  TURNREWIND_REASON_EXPIRED,
+  TURNREWIND_REASON_GIT_REQUIRED,
+  TURNREWIND_REASON_GIT_UNAVAILABLE,
+  TURNREWIND_REASON_TURN_ACTIVE,
+  TURNREWIND_REASON_UNSAFE_PATH,
+} from '../../shared/constants'
+
+/**
+ * 线协议上的「不可用原因」码 → 文案键。
+ *
+ * 卡片必须给出人能读懂的原因，而不是把 `TURNREWIND_EXPIRED` 这样的码直接糊到界面上；
+ * 但同时**不能丢掉未知码**（内核/宿主版本可能更新），未知码仍原样显示（见调用方）。
+ */
+const REASON_KEYS: Record<string, LocaleKey> = {
+  [TURNREWIND_REASON_GIT_REQUIRED]: 'unavailableGitDesc',
+  [TURNREWIND_REASON_GIT_UNAVAILABLE]: 'gitUnavailableReason',
+  [TURNREWIND_REASON_EXPIRED]: 'expiredReason',
+  [TURNREWIND_REASON_TURN_ACTIVE]: 'turnActiveReason',
+  [TURNREWIND_REASON_UNSAFE_PATH]: 'unsafePathReason',
+}
+
+/**
+ * 原因码对应的文案键；未知码或空值返回 null（调用方决定如何降级展示）。
+ * @param reason - 宿主回传的原因码。
+ * @returns 文案键或 null。
+ */
+export function reasonKey(reason: string | null | undefined): LocaleKey | null {
+  if (reason === null || reason === undefined || reason.length === 0)
+    return null
+  return REASON_KEYS[reason] ?? null
+}
 
 /** 单行 `+N -M` 文本；二进制显示 binaryLabel。 */
 export function formatCounts(file: Pick<TurnFileChange, 'insertions' | 'deletions' | 'binary'>, binaryLabel: string): string {

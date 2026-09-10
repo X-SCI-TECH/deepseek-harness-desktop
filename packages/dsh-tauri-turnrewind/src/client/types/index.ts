@@ -24,6 +24,13 @@ export interface TurnSummary {
   unavailable: string | null
   truncated: boolean
   files: TurnFileChange[]
+  /**
+   * 因超过单文件上限而未纳入快照的路径（撤销不含它们）。
+   * 宿主只回传前若干条（载荷有界），因此这里必须按「计数」而不是「长度」呈现。
+   */
+  skippedOversized: string[]
+  /** 被跳过的嵌套仓库目录（gitlink 内容不受撤销保护）。 */
+  skippedNestedRepos: string[]
 }
 
 /** 宿主 summary 路由的完整载荷。 */
@@ -128,3 +135,9 @@ export type LocaleKey
     | 'gitRequiredTitle'
     | 'gitRequiredDesc'
     | 'close'
+    | 'expiredReason'
+    | 'gitUnavailableReason'
+    | 'turnActiveReason'
+    | 'unsafePathReason'
+    | 'skippedOversized'
+    | 'skippedNestedRepos'

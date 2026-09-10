@@ -45,4 +45,11 @@ describe('turn-changes-card.cssr（视觉对齐官方 deliverables 行）', () =
     expect(css).toMatch(/\.dshp-turnrewind__files\s*\{[^}]*border-top: 1px solid/)
     expect(css).toMatch(/\.dshp-turnrewind__more\s*\{[^}]*border-top: 1px solid/)
   })
+
+  it('「不在撤销范围内」的提示是中性说明，与错误提示区分开', () => {
+    // 错误态用状态错误色；跳过说明用弱化色 + 更小字号（不是错误，只是范围说明）。
+    expect(css).toMatch(/\.dshp-turnrewind__notice--error\s*\{[^}]*color: var\(--dsw-alias-state-error-primary/)
+    expect(css).toMatch(/\.dshp-turnrewind__notice--skip\s*\{[^}]*font-size: 11px/)
+    expect(css).toMatch(/\.dshp-turnrewind__notice--skip\s*\{[^}]*color: var\(--dsw-alias-label-tertiary/)
+  })
 })

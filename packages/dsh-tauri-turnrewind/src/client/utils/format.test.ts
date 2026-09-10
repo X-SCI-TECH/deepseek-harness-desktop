@@ -1,5 +1,11 @@
 import type { SessionSummary, TurnSummary } from '../types'
 import { describe, expect, it } from 'vitest'
+import {
+  TURNREWIND_REASON_EXPIRED,
+  TURNREWIND_REASON_GIT_UNAVAILABLE,
+  TURNREWIND_REASON_TURN_ACTIVE,
+  TURNREWIND_REASON_UNSAFE_PATH,
+} from '../../shared/constants'
 import { TURNREWIND_VISIBLE_FILE_ROWS } from '../constants'
 import {
   basename,
@@ -7,6 +13,7 @@ import {
   fileListWindow,
   formatCounts,
   formatTotals,
+  reasonKey,
   resolveCardState,
 } from './format'
 
@@ -20,6 +27,8 @@ function turnSummary(patch: Partial<TurnSummary> = {}): TurnSummary {
     unavailable: null,
     truncated: false,
     files: [{ path: 'src/driver.ts', status: 'M', insertions: 4, deletions: 3, binary: false }],
+    skippedOversized: [],
+    skippedNestedRepos: [],
     ...patch,
   }
 }
@@ -76,6 +85,30 @@ describe('resolveCardState', () => {
     expect(resolveCardState(summary({ turns: [turnSummary({ files: [] })] }), 1)).toEqual({ kind: 'hidden' })
     // 账本还没有这一轮的记录（after 快照仍在结算）：不占位，由组件做有限重试。
     expect(resolveCardState(summary(), 7)).toEqual({ kind: 'hidden' })
+  })
+
+  it('快照被回收（已过期）走失败态，交给文案映射成人话', () => {
+    // 容量治理会把过期行的 files 清空：此时卡片仍要出现并说明原因，不能静默消失。
+    const expired = turnSummary({ unavailable: TURNREWIND_REASON_EXPIRED, files: [], fileCount: 0 })
+    expect(resolveCardState(summary({ turns: [expired] }), 1))
+      .toEqual({ kind: 'failed', reason: TURNREWIND_REASON_EXPIRED })
+  })
+})
+
+describe('reasonKey', () => {
+  it('已知原因码映射到文案键', () => {
+    expect(reasonKey(TURNREWIND_REASON_EXPIRED)).toBe('expiredReason')
+    expect(reasonKey(TURNREWIND_REASON_GIT_UNAVAILABLE)).toBe('gitUnavailableReason')
+    expect(reasonKey(TURNREWIND_REASON_TURN_ACTIVE)).toBe('turnActiveReason')
+    expect(reasonKey(TURNREWIND_REASON_UNSAFE_PATH)).toBe('unsafePathReason')
+  })
+
+  it('未知码/空值返回 null：调用方原样显示，绝不编文案', () => {
+    // 宿主可能先于客户端更新：未知码必须仍然可见，而不是显示空字符串。
+    expect(reasonKey('TURNREWIND_FUTURE_REASON')).toBeNull()
+    expect(reasonKey(null)).toBeNull()
+    expect(reasonKey(undefined)).toBeNull()
+    expect(reasonKey('')).toBeNull()
   })
 })
 

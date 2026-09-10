@@ -11,6 +11,7 @@
  * live 是宿主定时刷新的缓存值（读内存，不起 git 子进程）。
  */
 
+import type { WorkspaceQueue } from '../service/queue'
 import type { HostContext, JsonBody, LiveSnapshot, SummaryPayload } from '../types'
 import { routeHandler, withConnectionAuth } from 'dsh-tauri'
 import { TURNREWIND_API_PREFIX, TURNREWIND_PLUGIN_NAME } from '../../shared/constants'
@@ -22,10 +23,22 @@ import { findSession, probeWorkspace, sessionCwdOf } from '../service/workspace'
 /** 运行中实时读数的读取面（由 capture 编排器提供；未接线时返回 inactive）。 */
 export type LiveStateReader = (sessionId: string) => LiveSnapshot
 
+/** 路由依赖（队列与捕获层共用同一实例，保证撤销与结算互斥）。 */
+export interface RouteDeps {
+  dshHome?: string
+  live?: LiveStateReader
+  /** 工作区级串行队列。 */
+  queue: WorkspaceQueue
+}
+
+/** 每条 turn 记录最多回传多少个「不在撤销范围内」的路径（避免载荷无界）。 */
+const MAX_SKIPPED_PATHS = 20
+
 /** 构建路由列表。 */
-export function buildRoutes(ctx: HostContext, options: { dshHome?: string, live?: LiveStateReader } = {}): any[] {
+export function buildRoutes(ctx: HostContext, options: RouteDeps): any[] {
   const dshHome = options.dshHome ?? currentDshHome()
   const live = options.live
+  const queue = options.queue
   // 连接信任边界是可选能力：服务缺席时 withConnectionAuth 原样放行，
   // 由 routeHandler 自己的回环校验兜底（绝不因未注入而卡住 fiber）。
   const connection = typeof ctx?.get === 'function' ? ctx.get('connection') : undefined
@@ -61,6 +74,9 @@ export function buildRoutes(ctx: HostContext, options: { dshHome?: string, live?
           unavailable: turn.unavailable ?? null,
           truncated,
           files: truncated ? turn.files.slice(0, MAX_SUMMARY_FILES) : turn.files,
+          // 「不在撤销范围内」的路径：让卡片能如实标注，而不是静默漏掉。
+          skippedOversized: (turn.skippedOversized ?? []).slice(0, MAX_SKIPPED_PATHS),
+          skippedNestedRepos: (turn.skippedNestedRepos ?? []).slice(0, MAX_SKIPPED_PATHS),
         }
       }),
     }
@@ -79,7 +95,15 @@ export function buildRoutes(ctx: HostContext, options: { dshHome?: string, live?
       return [404, { error: '会话不存在或尚未就绪' }]
     const probe = await probeWorkspace(sessionCwdOf(session))
     // 归属校验用当前 worktree 根；探测失败时传 null，由 service 层按账本判定。
-    const outcome = await undoTurn({ dshHome, sessionId, turn, currentWorkspace: probe.ok ? probe.root : null })
+    // 撤销与捕获共用同一队列，且该会话仍在跑时直接拒绝（after 快照尚未结算）。
+    const outcome = await undoTurn({
+      dshHome,
+      sessionId,
+      turn,
+      currentWorkspace: probe.ok ? probe.root : null,
+      queue,
+      turnActive: live?.(sessionId).active === true,
+    })
     if (outcome.ok)
       return [200, { ok: true, restored: outcome.restored, removed: outcome.removed, failed: outcome.failed }]
     return [outcome.code, { error: outcome.error, conflicts: outcome.conflicts ?? [] }]

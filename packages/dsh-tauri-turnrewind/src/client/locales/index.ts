@@ -39,6 +39,12 @@ const DICT_ZH = {
   gitRequiredTitle: '撤销需要使用 Git 代码仓库',
   gitRequiredDesc: '此操作仅在 Git 代码仓库中运行时有效。',
   close: '关闭',
+  expiredReason: '该轮的快照已被回收（超出保留范围，或快照仓因超限被重建），无法撤销。',
+  gitUnavailableReason: '未找到 git 可执行文件，请先安装 Git 并使其在 PATH 中可用。',
+  turnActiveReason: '该轮仍在运行中，结束后才能撤销。',
+  unsafePathReason: '目标路径上有符号链接或非空目录，出于安全考虑拒绝撤销。',
+  skippedOversized: '{count} 个超大文件未纳入快照，撤销不会改动它们',
+  skippedNestedRepos: '{count} 个嵌套仓库已跳过，撤销不会改动其内部文件',
 } as const satisfies Record<LocaleKey, string>
 
 /** en 字典，与 zh 键集完全一致（locale 运行时强制双语平衡）。 */
@@ -63,6 +69,12 @@ const DICT_EN: Record<LocaleKey, string> = {
   gitRequiredTitle: 'Undo requires a Git repository',
   gitRequiredDesc: 'This action only works when running inside a Git repository.',
   close: 'Close',
+  expiredReason: 'This turn’s snapshot has been reclaimed (beyond the retention window, or the snapshot repository was rebuilt after exceeding its size limit), so it cannot be undone.',
+  gitUnavailableReason: 'The git executable was not found. Install Git and make it available on PATH.',
+  turnActiveReason: 'This turn is still running; it can be undone once it finishes.',
+  unsafePathReason: 'A symbolic link or a non-empty directory sits on the target path, so the undo was refused for safety.',
+  skippedOversized: '{count} oversized file(s) were not captured — undoing will not touch them',
+  skippedNestedRepos: '{count} nested repository/repositories skipped — undoing will not touch their contents',
 }
 
 /** 活跃语言 id（module 级缓存，apply 时初始化并由订阅推进）。 */

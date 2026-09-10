@@ -15,6 +15,7 @@ import { createTurnRewindHooks } from './hooks'
 import { buildRoutes } from './routes'
 import { createTurnCapture } from './service/capture'
 import { currentDshHome } from './service/ledger'
+import { createWorkspaceQueue } from './service/queue'
 import { sessionCwdOf } from './service/workspace'
 
 /** 插件行配置（当前只有测试/调试用的数据目录覆盖）。 */
@@ -33,8 +34,16 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
     ? config.dshHome
     : currentDshHome()
   const hooks = createTurnRewindHooks()
-  const capture = createTurnCapture(dshHome, ctx.logger, (sessionId, turn, fileCount) => {
-    void hooks.callHook('turn:captured', sessionId, turn, fileCount)
+  // 工作区级串行队列：捕获、结算、实时读数、容量治理与撤销共用同一实例，
+  // 私有仓 index 因此不会出现两件 git 操作并发（见 service/queue.ts）。
+  const queue = createWorkspaceQueue()
+  const capture = createTurnCapture({
+    dshHome,
+    queue,
+    logger: ctx.logger,
+    onCaptured: (sessionId, turn, fileCount) => {
+      void hooks.callHook('turn:captured', sessionId, turn, fileCount)
+    },
   })
 
   // 1) 执行屏障：step === 1 时把 before 快照做在模型请求与工具执行之前。
@@ -76,7 +85,7 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
 
   // 4) HTTP 路由（客户端 UI 经此读摘要 / 运行中读数 / 执行撤销）。
   ctx.effect(() => {
-    const disposers = buildRoutes(ctx, { dshHome, live: capture.liveState }).map(route => ctx.webServer.register(route))
+    const disposers = buildRoutes(ctx, { dshHome, live: capture.liveState, queue }).map(route => ctx.webServer.register(route))
     return () => {
       for (const dispose of disposers)
         dispose()

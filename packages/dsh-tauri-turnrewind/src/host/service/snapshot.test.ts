@@ -12,6 +12,8 @@ import {
   conflictPaths,
   diffTurnChanges,
   liveDiff,
+  readGenerationFor,
+  readRefCommit,
   resolveInsideWorkspace,
   restoreTurnChanges,
   snapshotStoreFor,
@@ -253,6 +255,113 @@ describe('liveDiff（运行中实时读数）', () => {
     await rm(store.gitDir, { recursive: true, force: true })
     const live = await liveDiff(store, before.commit)
     expect(live.ok).toBe(false)
+  })
+})
+
+describe('捕获限额（超限文件 / 嵌套仓库）', () => {
+  it('超限时排除最大的文件后重试，并把它记进跳过明细', async () => {
+    const { dshHome, worktree } = await fixture()
+    const store = snapshotStoreFor(dshHome, worktree)
+    await writeFile(join(worktree, 'small.txt'), 'ok\n', 'utf8')
+    await writeFile(join(worktree, 'big.bin'), Buffer.alloc(4096, 7))
+
+    // 用一个极小上限触发真实上限（64MB / 512MB）在测试里造不出来的路径。
+    const captured = await captureSnapshot(store, turnRef('s9', 1, 'before'), 'before', {
+      limits: { maxFileBytes: 64, maxSnapshotBytes: 64, maxFiles: 100 },
+    })
+    expect(captured.ok).toBe(true)
+    if (!captured.ok)
+      return
+
+    expect(captured.skippedOversized).toContain('big.bin')
+    expect(captured.learnedExclusions).toContain('big.bin')
+    // 排除是「真的没进快照」：ls-tree 里不能有它。
+    const listed = await gitInSnapshot(store, ['ls-tree', '-r', '--name-only', captured.commit])
+    expect(listed.ok).toBe(true)
+    if (listed.ok) {
+      expect(listed.out).not.toContain('big.bin')
+      expect(listed.out).toContain('small.txt')
+    }
+
+    // 学到的排除清单要能传给下一次捕获：这样后续 turn 不必再付一次重捕代价。
+    const again = await captureSnapshot(store, turnRef('s9', 1, 'after'), 'after', {
+      exclude: captured.learnedExclusions,
+      limits: { maxFileBytes: 64, maxSnapshotBytes: 64, maxFiles: 100 },
+    })
+    expect(again.ok).toBe(true)
+    if (again.ok)
+      expect(again.skippedOversized).toContain('big.bin')
+  })
+
+  it('自动跳过嵌套仓库（有提交 → gitlink，撤销无法保护其内容）', async () => {
+    const { dshHome, worktree } = await fixture()
+    const nested = join(worktree, 'nested')
+    await mkdir(nested, { recursive: true })
+    await run('git', ['-c', 'init.defaultBranch=main', 'init', '--quiet', nested], { windowsHide: true })
+    await writeFile(join(nested, 'inner.txt'), 'v1\n', 'utf8')
+    const identity = ['-c', 'user.email=test@example.com', '-c', 'user.name=test']
+    await run('git', ['-C', nested, ...identity, 'add', '--all'], { windowsHide: true })
+    await run('git', ['-C', nested, ...identity, 'commit', '--quiet', '-m', 'init'], { windowsHide: true })
+
+    const store = snapshotStoreFor(dshHome, worktree)
+    const before = await captureSnapshot(store, turnRef('s10', 1, 'before'), 'before')
+    expect(before.ok).toBe(true)
+
+    // 嵌套仓库内部改动：若不排除，diff 只会显示 `M nested`（gitlink 指针变化）——
+    // 那是一条**假**的撤销能力：`git checkout` 会成功但嵌套目录内容纹丝不动。
+    await writeFile(join(nested, 'inner.txt'), 'v2 changed\n', 'utf8')
+    const after = await captureSnapshot(store, turnRef('s10', 1, 'after'), 'after')
+    expect(after.ok).toBe(true)
+    if (!before.ok || !after.ok)
+      return
+    expect(after.skippedNestedRepos).toContain('nested')
+
+    const diff = await diffTurnChanges(store, before.commit, after.commit)
+    expect(diff.ok).toBe(true)
+    if (diff.ok)
+      expect(diff.changes.filter(change => change.path === 'nested' || change.path.startsWith('nested/'))).toEqual([])
+  })
+
+  it('预扫没发现时，靠 git add 的报错兜底识别无提交的嵌套仓库', async () => {
+    const { dshHome, worktree } = await fixture()
+    const nested = join(worktree, 'nested')
+    await mkdir(nested, { recursive: true })
+    await run('git', ['-c', 'init.defaultBranch=main', 'init', '--quiet', nested], { windowsHide: true })
+    await writeFile(join(nested, 'inner.txt'), 'uncommitted\n', 'utf8')
+
+    const store = snapshotStoreFor(dshHome, worktree)
+    // 显式传空 nestedDirs：模拟预扫被跳过/漏判时 `git add --all` 直接 fatal
+    // （"does not have a commit checked out"）的兜底路径。
+    const captured = await captureSnapshot(store, turnRef('s11', 1, 'before'), 'before', { nestedDirs: [] })
+    expect(captured.ok).toBe(true)
+    if (!captured.ok)
+      return
+    expect(captured.skippedNestedRepos).toContain('nested')
+    expect(captured.learnedExclusions).toContain('nested')
+  })
+})
+
+describe('快照仓代数', () => {
+  it('首次初始化分配代数；仓库被删后重建会轮换代数（旧记录据此过期）', async () => {
+    const { dshHome, worktree } = await fixture()
+    const store = snapshotStoreFor(dshHome, worktree)
+    expect(store.generation).toBeUndefined()
+
+    const first = await captureSnapshot(store, turnRef('s12', 1, 'before'), 'before')
+    expect(first.ok).toBe(true)
+    const firstGeneration = store.generation
+    expect(firstGeneration).toBeTypeOf('string')
+    expect(await readGenerationFor(dshHome, worktree)).toBe(firstGeneration)
+
+    // 整仓消失（被隔离重建 / 用户清理）：下一次捕获必须换一代。
+    await rm(store.gitDir, { recursive: true, force: true })
+    const second = await captureSnapshot(store, turnRef('s12', 1, 'after'), 'after')
+    expect(second.ok).toBe(true)
+    expect(store.generation).toBeTypeOf('string')
+    expect(store.generation).not.toBe(firstGeneration)
+    expect(await readGenerationFor(dshHome, worktree)).toBe(store.generation)
+    // 老 ref 随旧仓一起消失：旧代数记录不存在「指向别人对象」的错乱。
+    expect(await readRefCommit(store, turnRef('s12', 1, 'before'))).toBeNull()
   })
 })
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'pathe'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LEDGER_VERSION, MAX_TURNS_PER_SESSION } from '../constants'
+import { LEDGER_VERSION, MAX_TURN_RECORDS, MAX_TURNS_PER_SESSION, REASON_EXPIRED } from '../constants'
 import {
   blankLedger,
   ledgerPath,
@@ -91,17 +91,37 @@ describe('ledger', () => {
     expect(downgraded.turns).toEqual([])
   })
 
-  it('evicts the oldest turns beyond the retention limit and reports them', async () => {
+  it('把超出保留窗口的 turn 标记过期并回传其 refs（审计行保留）', async () => {
     const home = await tempHome()
     const overflow = MAX_TURNS_PER_SESSION + 3
-    const { evicted } = await mutateLedger(home, 'session-retain', ledger => ({
+    const { refsToDelete } = await mutateLedger(home, 'session-retain', ledger => ({
       ...ledger,
       turns: Array.from({ length: overflow }, (_, index) => record(index + 1)),
     }))
-    expect(evicted.map(turn => turn.turn)).toEqual([1, 2, 3])
+    // 最老 3 条各自的 before/after ref 都要删（对象随之可被 prune 回收）。
+    expect(refsToDelete).toHaveLength(6)
     const stored = await readLedger(home, 'session-retain')
-    expect(stored.turns).toHaveLength(MAX_TURNS_PER_SESSION)
-    expect(stored.turns[0]?.turn).toBe(4)
+    // 过期只锁执行、不抹审计：行还在、计数还在，但文件明细与 refs 已清空。
+    expect(stored.turns).toHaveLength(overflow)
+    expect(stored.turns[0]?.turn).toBe(1)
+    expect(stored.turns[0]?.expiredAt).toBeTypeOf('number')
+    expect(stored.turns[0]?.unavailable).toBe(REASON_EXPIRED)
+    expect(stored.turns[0]?.files).toEqual([])
+    expect(stored.turns[0]?.beforeRef).toBe('')
+    expect(stored.turns.at(-1)?.expiredAt ?? null).toBeNull()
+  })
+
+  it('超过硬上限的最老审计行被真正丢弃', async () => {
+    const home = await tempHome()
+    const overflow = MAX_TURN_RECORDS + 5
+    await mutateLedger(home, 'session-cap', ledger => ({
+      ...ledger,
+      turns: Array.from({ length: overflow }, (_, index) => record(index + 1)),
+    }))
+    const stored = await readLedger(home, 'session-cap')
+    expect(stored.turns).toHaveLength(MAX_TURN_RECORDS)
+    expect(stored.turns[0]?.turn).toBe(overflow - MAX_TURN_RECORDS + 1)
+    expect(stored.turns.at(-1)?.turn).toBe(overflow)
   })
 
   it('serializes concurrent load-modify-save so no update is lost', async () => {

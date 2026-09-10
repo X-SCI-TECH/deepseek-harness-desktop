@@ -210,6 +210,12 @@ export default b('turnrewind', {
     color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
   }, [
     m('error', { color: 'var(--dsw-alias-state-error-primary, #d93025)' }),
+    // 「不在撤销范围内」的提示是中性说明（不是错误），用弱化色与更小字号区分。
+    m('skip', {
+      fontSize: '11px',
+      lineHeight: '16px',
+      color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary)))',
+    }),
   ]),
   e('conflict-list', {
     margin: '4px 0 0',
