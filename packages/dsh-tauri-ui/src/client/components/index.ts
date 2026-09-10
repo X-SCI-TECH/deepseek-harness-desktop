@@ -3,9 +3,9 @@ export type { IconComponent, IconProps, SharedIconProps } from './icon'
 export {
   ArrowDownToLine,
   ArrowRight,
-  ArrowUturnCcwLeft,
   ArrowRotateRight,
   ArrowUpRight,
+  ArrowUturnCcwLeft,
   Calendar,
   ChevronDown,
   ChevronUp,
