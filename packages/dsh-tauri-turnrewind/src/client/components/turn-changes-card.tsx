@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import type { TurnChangesCardProps, TurnFileChange } from '../types'
-import { ArrowRotateLeft, ChevronDown, ChevronUp, Icon, SquarePlus, useMountStyle } from 'dsh-tauri-ui/client'
+import { ArrowUturnCcwLeft, ChevronDown, ChevronUp, Icon, SquarePlus, useMountStyle } from 'dsh-tauri-ui/client'
 /**
  * turn-changes-card.tsx — 一轮结束时渲染的变更卡片（视觉对齐官方 deliverables 行）。
  *
@@ -247,7 +247,7 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
                   title={text('undo')}
                 >
                   {state.undoing ? text('undoing') : text('undo')}
-                  <Icon as={ArrowRotateLeft} size={12} />
+                  <Icon as={ArrowUturnCcwLeft} size={14} />
                 </button>
               )}
           {/*

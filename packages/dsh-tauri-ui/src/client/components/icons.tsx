@@ -7,7 +7,7 @@
 export { default as ArrowDownToLine } from '@gravity-ui/icons/ArrowDownToLine'
 export { default as ArrowLeft } from '@gravity-ui/icons/ArrowLeft'
 export { default as ArrowRight } from '@gravity-ui/icons/ArrowRight'
-export { default as ArrowRotateLeft } from '@gravity-ui/icons/ArrowRotateLeft'
+export { default as ArrowUturnCcwLeft } from '@gravity-ui/icons/ArrowUturnCcwLeft'
 export { default as ArrowRotateRight } from '@gravity-ui/icons/ArrowRotateRight'
 export { default as ArrowUpRight } from '@gravity-ui/icons/ArrowUpRight'
 export { default as Calendar } from '@gravity-ui/icons/Calendar'
