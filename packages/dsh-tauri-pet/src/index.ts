@@ -29,14 +29,31 @@ export const inject = ['webServer', 'sessions']
 /** SSE 流路径（Rust 消费端按 `http://127.0.0.1:<DSH_WEB_PORT>` + 此路径订阅）。 */
 export const SESSION_STREAM_PATH = '/api/dsh-pet/session-stream'
 
+/** 从宿主 session / 事件读取会话 id（`peerOf` 复用，避免为取 id 重复推导整份 peer）。 */
+function sessionIdOf(session: unknown, event: PetSessionEvent): string {
+  const s = session as { id?: unknown, sessionId?: unknown } | undefined
+  if (typeof s?.id === 'string')
+    return s.id
+  if (typeof s?.sessionId === 'string')
+    return s.sessionId
+  return String(event.data?.sessionId ?? '')
+}
+
 /**
  * 从宿主 session 对象读取的最小身份字段（运行时形状在此解耦，字段缺失即 undefined）。
  * 标题从宿主 `sessionTitle` 服务（`session/title` 事件折叠）读取 —— 裸 Session 类没有 title。
+ *
+ * `foldTitle` 只在**会话首次出现**时传入：`sessionTitle.get()` 内部是
+ * `foldSessionTitle(session.snapshotEvents())`，而 `snapshotEvents()` 会整份复制
+ * 会话事件日志（37k 事件 ≈ 288 KiB/次）再 `findLast` 扫描一遍 —— O(事件总数)。
+ * 若在每次 `session/event`（含逐 token 的 assistant/chunk）都调用，宿主进程每 token
+ * 都要付 1–4 ms CPU 与数百 KiB 垃圾，直接拖慢同进程的流式转发。后续标题变化由
+ * reducer 的 `session/title` 分支增量带入，无需重复全量折叠。
  */
 function peerOf(
   session: unknown,
   event: PetSessionEvent,
-  titleOf?: (session: unknown) => string | undefined,
+  foldTitle?: (session: unknown) => string | undefined,
 ): PetSessionPeer {
   const s = session as {
     id?: unknown
@@ -54,14 +71,10 @@ function peerOf(
     cwd?: string
     running?: boolean
   } | undefined
-  const id = typeof s?.id === 'string'
-    ? s.id
-    : typeof s?.sessionId === 'string'
-      ? s.sessionId
-      : String(event.data?.sessionId ?? '')
+  const id = sessionIdOf(session, event)
   const header = s?.header
   const summary = s?.summary
-  const foldedTitle = titleOf?.(session)
+  const foldedTitle = foldTitle?.(session)
   const title = summary?.title ?? s?.title ?? foldedTitle
   return {
     id,
@@ -151,17 +164,24 @@ export function apply(ctx: HostContext): void {
   const known = new Set<string>()
   ctx.on('session/event', (session: unknown, event: unknown) => {
     const petEvent = asPetEvent(event)
-    const peer = peerOf(session, petEvent, titleOf)
-    if (!peer.id)
+    const id = sessionIdOf(session, petEvent)
+    if (!id)
       return
-    if (!known.has(peer.id)) {
-      known.add(peer.id)
+    // 标题折叠是 O(整份会话日志)：只在会话首次出现时读一次，之后的标题变化由
+    // `session/title` 事件增量带入（reducer 已处理），热路径上不再触碰 title 服务。
+    const firstSight = !known.has(id)
+    if (firstSight)
+      known.add(id)
+    const peer = firstSight
+      ? peerOf(session, petEvent, titleOf)
+      : peerOf(session, petEvent)
+    if (firstSight)
       reducer.create(peer)
-    }
     reducer.apply(peer, petEvent)
   })
   ctx.on('session/disposed', (session: unknown) => {
-    const peer = peerOf(session, { type: '', seq: 0, time: 0, data: {} }, titleOf)
+    // remove 载荷只用 id：这里同样不折叠标题，避免销毁路径再付一次 O(日志) 成本。
+    const peer = peerOf(session, { type: '', seq: 0, time: 0, data: {} })
     if (!peer.id)
       return
     known.delete(peer.id)
