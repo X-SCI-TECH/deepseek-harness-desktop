@@ -27,6 +27,7 @@ import {
   rememberNewSessionMode,
   useWorktreeSession,
 } from '../store'
+import { addDraftAttachments, draftAttachmentIds, removeDraftAttachment } from '../utils/draft-attachments'
 import { resolveAccessModeGroup, waitForInputActions, waitForSessionListed } from '../utils/worktree'
 
 export function WorktreeModeSelect(props: ModeSelectProps): ReactElement {
@@ -92,7 +93,7 @@ export function WorktreeModeSelect(props: ModeSelectProps): ReactElement {
 function WorktreeModeControl({ sessionId, useInput, inputActions, sessionsRuntime, workspacesRuntime }: ModeSelectProps): ReactElement | null {
   const state = useWorktreeSession(sessionId)
   const draft = useInput(input => input.draft)
-  const imageIds = useInput(input => input.imageIds)
+  const imageIds = useInput(draftAttachmentIds)
   useLocale()
   const [open, setOpen] = useState(false)
   const submittingRef = useRef(false)
@@ -137,10 +138,10 @@ function WorktreeModeControl({ sessionId, useInput, inputActions, sessionsRuntim
         await attachWorktreeSession(targetSessionId)
         const nextActions = await waitForInputActions(sessionsRuntime, targetSessionId)
         nextActions.setDraft(draft)
-        if (imageIds.length > 0 && !nextActions.addImages(imageIds))
+        if (!addDraftAttachments(nextActions, imageIds))
           throw new Error('无法迁移消息附件到工作树会话')
         inputActions.setDraft('')
-        for (const imageId of imageIds) inputActions.removeImage(imageId)
+        for (const imageId of imageIds) removeDraftAttachment(inputActions, imageId)
         patchSession(sessionId, { mode: 'local', phase: 'idle', loadingLabel: '' })
         sessionsRuntime.open(targetSessionId)
         // 迁移草稿后提交到新工作树会话；submit() 会在进入时同步捕获草稿/附件快照再发送。
@@ -151,7 +152,7 @@ function WorktreeModeControl({ sessionId, useInput, inputActions, sessionsRuntim
           }
           finally {
             nextActions.setDraft('')
-            for (const imageId of imageIds) nextActions.removeImage(imageId)
+            for (const imageId of imageIds) removeDraftAttachment(nextActions, imageId)
           }
         })
         // 源会话完整对话已继承进工作树会话：归档源会话，避免侧边栏多出一个重复会话。

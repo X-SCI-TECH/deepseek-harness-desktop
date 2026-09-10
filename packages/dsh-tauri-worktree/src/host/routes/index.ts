@@ -61,7 +61,7 @@ export function buildRoutes(ctx: HostContext, config: PluginConfig): any[] {
         const result = await discardWorktree(ctx, worktreesRoot, {
           sessionId: job.sessionId,
           worktree_hash_dirname: worktreeHashDirname,
-        })
+        }, { linkDependencyDirectories: config.linkDependencyDirectories })
         if (result.ok) {
           const updated: DiscardJob = { ...job, state: 'completed' }
           discardJobs.set(job.jobId, updated)
@@ -147,6 +147,8 @@ export function buildRoutes(ctx: HostContext, config: PluginConfig): any[] {
         const r = await ensureWorktree(ctx, worktreesRoot, projectPath, sessionId, {
           sourceSessionId,
           carryStaged: body.carryStaged === true,
+          linkDependencies: config.linkDependencies,
+          linkDependencyDirectories: config.linkDependencyDirectories,
         })
         if (!r.ok)
           return [400, { error: r.error }]
@@ -205,7 +207,10 @@ export function buildRoutes(ctx: HostContext, config: PluginConfig): any[] {
           sessionId: String(body.sessionId ?? ''),
           worktree_hash_dirname: String(body.worktreeHashDirname ?? ''),
           branch_name: String(body.branchName ?? ''),
-        }, { carryStaged: body.carryStaged === true })
+        }, {
+          carryStaged: body.carryStaged === true,
+          linkDependencyDirectories: config.linkDependencyDirectories,
+        })
         if (!r.ok)
           return [400, { error: r.error }]
         return [200, {

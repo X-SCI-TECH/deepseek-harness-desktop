@@ -26,6 +26,100 @@ export default b('extension', [
       boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
     }),
   ]),
+  // 表单字段：技能编辑器 / MCP 编辑器 / 导入弹窗共享，挂载于 apply 全局生效。
+  e('form', { display: 'flex', flexDirection: 'column', gap: '10px' }),
+  e('label', {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    fontSize: '12px',
+    lineHeight: '18px',
+    color: secondary,
+  }, [
+    c('& > span:first-child', { color: tertiary }),
+  ]),
+  e('input', {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: `1px solid ${border}`,
+    borderRadius: '8px',
+    padding: '7px 10px',
+    outline: 'none',
+    background: layer1,
+    color: primary,
+    font: 'inherit',
+    fontSize: '13px',
+  }, [
+    c('&:focus-visible', {
+      borderColor: business,
+      boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
+    }),
+  ]),
+  e('textarea', {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: `1px solid ${border}`,
+    borderRadius: '8px',
+    padding: '7px 10px',
+    outline: 'none',
+    background: layer1,
+    color: primary,
+    font: 'inherit',
+    fontSize: '13px',
+    minHeight: '320px',
+    resize: 'vertical',
+    fontFamily: 'var(--ds-font-family-code)',
+    lineHeight: '1.5',
+  }, [
+    c('&[data-short="true"]', { minHeight: '96px' }),
+    c('&:focus-visible', {
+      borderColor: business,
+      boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
+    }),
+  ]),
+  e('select', {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: `1px solid ${border}`,
+    borderRadius: '8px',
+    padding: '7px 10px',
+    outline: 'none',
+    background: layer1,
+    color: primary,
+    font: 'inherit',
+    fontSize: '13px',
+  }, [
+    c('&:focus-visible', {
+      borderColor: business,
+      boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
+    }),
+  ]),
+  e('checks', {
+    display: 'flex',
+    gap: '16px',
+    fontSize: '13px',
+    lineHeight: '20px',
+  }, [
+    c('& label', {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '8px',
+      cursor: 'pointer',
+      minWidth: '0',
+    }),
+  ]),
+  e('form-error', {
+    margin: '0',
+    color: 'var(--dsw-alias-state-error-primary)',
+    fontSize: '12px',
+    lineHeight: '18px',
+  }),
+  // Modal 根元素自身同时携带 .dshp-extension 与 __modal-wide/__modal-form：
+  // 必须用 & 复合选择器命中同一元素（后代选择器永远不中）。
+  c('&.dshp-extension__modal-wide.dshp-extension__modal-wide', { width: 'min(680px,100%)' }),
+  c('&.dshp-extension__modal-form.dshp-extension__modal-form', { width: 'min(760px,100%)' }),
+  // contentClassName 落在 Modal 内容层（dialog 根的后代），保持后代选择器。
+  c('.dshp-extension__modal-scroll.dshp-extension__modal-scroll', { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }),
   e('cards', {
     display: 'grid',
     gridTemplateColumns: 'repeat(2,minmax(0,1fr))',

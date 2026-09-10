@@ -1,14 +1,10 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
-const { c, bem: { b, e } } = cssr
+const { bem: { b, e, m } } = cssr
 const { secondary, tertiary } = sharedStyles
 
-/** MCP 批量导入弹窗（mcp-import-dialog.tsx）：分组滚动列表。 */
+/** MCP 批量导入弹窗（mcp-import-dialog.tsx）：分组滚动列表 + 勾选行。 */
 export default b('extension', [
-  // Modal className 需高于官方 Modal 内部宽度的特异性，保持双重类。
-  c('.dshp-extension__modal-wide.dshp-extension__modal-wide', { width: 'min(680px,100%)' }),
-  c('.dshp-extension__modal-form.dshp-extension__modal-form', { width: 'min(760px,100%)' }),
-  c('.dshp-extension__modal-scroll.dshp-extension__modal-scroll', { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }),
   e('import-scroll', {
     display: 'flex',
     flexDirection: 'column',
@@ -29,4 +25,13 @@ export default b('extension', [
     color: secondary,
     cursor: 'pointer',
   }),
+  e('import-choice', {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    cursor: 'pointer',
+    minWidth: '0',
+  }, [
+    m('disabled', { cursor: 'default' }),
+  ]),
 ])

@@ -1,37 +1,25 @@
 import { cssr, styles as sharedStyles } from 'dsh-tauri-ui/client'
 
 const { c, bem: { b, e } } = cssr
-const { primary, secondary, tertiary, borderL2: border, layer1, hover } = sharedStyles
+const { primary, borderL2: border, business, layer1 } = sharedStyles
 
-/** MCP 列表（mcp-tab.tsx）：格式分段 + 标签 chips + 开关 + 链接。 */
+/** MCP 列表（mcp-tab.tsx）：list-head 内的范围筛选下拉。 */
 export default b('extension', [
-  e('segments', {
-    display: 'inline-flex',
-    gap: '4px',
+  e('scope', {
+    boxSizing: 'border-box',
     border: `1px solid ${border}`,
     borderRadius: '8px',
-    padding: '3px',
+    padding: '4px 10px',
+    outline: 'none',
     background: layer1,
-  }),
-  e('segment', {
-    border: '0',
-    borderRadius: '6px',
-    padding: '4px 14px',
-    background: 'transparent',
-    color: secondary,
+    color: primary,
     font: 'inherit',
     fontSize: '12px',
-    cursor: 'pointer',
+    lineHeight: '18px',
   }, [
-    c('&[data-active="true"]', { background: hover, color: primary, fontWeight: '600' }),
+    c('&:focus-visible', {
+      borderColor: business,
+      boxShadow: `0 0 0 2px color-mix(in srgb,${business} 18%,transparent)`,
+    }),
   ]),
-  e('format', {
-    border: `1px solid ${border}`,
-    borderRadius: '8px',
-    padding: '8px 12px',
-    background: layer1,
-  }, [
-    c('& summary', { fontSize: '12px', color: secondary, cursor: 'pointer' }),
-  ]),
-  e('format-hint', { margin: '2px 0 0', fontSize: '12px', color: tertiary }),
 ])

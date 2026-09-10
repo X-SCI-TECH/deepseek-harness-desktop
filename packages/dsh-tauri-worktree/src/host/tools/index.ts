@@ -84,6 +84,8 @@ export function createToolSet(
           sourceSessionId: sourceSession.id,
           branchName: String(args.branch_name ?? ''),
           carryStaged: args.carry_staged === true,
+          linkDependencies: config.linkDependencies,
+          linkDependencyDirectories: config.linkDependencyDirectories,
           signal: exec?.signal,
         })
         if (!created.ok)
@@ -158,6 +160,7 @@ export function createToolSet(
         }, {
           signal: exec?.signal,
           carryStaged: args.carry_staged === true,
+          linkDependencyDirectories: config.linkDependencyDirectories,
         })
         if (!r.ok)
           return { ok: false, error: r.error }
