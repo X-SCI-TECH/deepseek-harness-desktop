@@ -1,7 +1,11 @@
 //! pnpm 选版与版本探测：store 主版本感知（pnpm 10 与 11 的 store 布局互不兼容）、
-//! 用户 pnpm 探测（注入桌面端选定 Node 的 PATH，见 issue #182；wait/cleanup 全程
-//! 有界监控，见 probe 机制）、捆绑版按需补齐下载，以及服务启动时的
+//! 用户 pnpm 探测（注入桌面端选定 Node 的 PATH，见 issue #182；stdin 关闭、wait/
+//! cleanup 全程有界监控，见 probe 机制）、捆绑版按需补齐下载，以及服务启动时的
 //! `DSH_PREFER_BUNDLED_PNPM` 决策（启动阶段不触发下载）。
+//!
+//! 探测只是「优先复用用户 pnpm」的优化：探测进程被强杀并回收干净后的失败
+//! （超时/读管道失败/broken shim）一律降级为 `Ok(None)`，由 [`ensure_pnpm`] 回退
+//! 捆绑版 pnpm；只有进程状态无法确认时才 fail-closed 返回 `Err`（issue #449）。
 
 use crate::config;
 use crate::service::cli;
@@ -113,16 +117,7 @@ async fn user_pnpm_major_version_bounded(
         return Ok(None);
     };
     let node = config::get_node_binary_path(app_handle);
-    let mut command = std::process::Command::new(&pnpm);
-    command.arg("--version");
-    if let Some(path) = pnpm_probe_path(&pnpm, Some(&node)) {
-        command.env("PATH", path);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
+    let mut command = pnpm_probe_command(&pnpm, Some(&node));
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -226,8 +221,11 @@ async fn user_pnpm_major_version_bounded(
             };
             match cleanup {
                 Ok(ProbeTaskResult::Finished(_)) => {
+                    // 强杀 + 回收完成意味着没有遗留进程，只是这次探测没拿到结果：
+                    // 按「用户 pnpm 不可用」降级，由 ensure_pnpm 回退捆绑版，
+                    // 而不是把慢探测升级成整次插件安装失败（issue #449）。
                     super::super::process::clear_process_cleanup_failed(owner);
-                    return Err(reason);
+                    return Ok(probe_timeout_or_fallback(&pnpm, reason));
                 }
                 Ok(ProbeTaskResult::CleanupPending { child, pid, reason }) => {
                     let pending = ProbeCleanupPending {
@@ -513,6 +511,17 @@ fn probe_output_or_fallback(
     }
 }
 
+/// 探测超时后进程已被强杀并回收干净时的处置：记降级日志并返回「用户 pnpm
+/// 不可用」（`None`），让 [`ensure_pnpm`] 回退捆绑版 pnpm。
+///
+/// 版本探测只是「优先复用用户 pnpm」的优化，慢探测（corepack 首次下载确认、
+/// 杀软扫描等）不该中断整次插件安装（issue #449）。只有清理未确认（进程可能
+/// 仍在、锁未释放）的分支才保持 fail-closed 的 `Err`。
+fn probe_timeout_or_fallback(pnpm: &Path, reason: String) -> Option<u32> {
+    log_probe_fallback(pnpm, "timeout", reason);
+    None
+}
+
 /// 用户 pnpm 主版本号（解析 `pnpm --version` 首个点分字段）；不存在或不可运行
 /// （corepack shim 在 Node 24 上 ERR_INVALID_THIS 崩溃等）返回 None。
 ///
@@ -532,18 +541,7 @@ pub(crate) fn pnpm_major_version_at(pnpm: &Path) -> Option<u32> {
 /// Node/pnpm 安装，而 corepack 的 `pnpm.cmd` 需要通过 PATH 调用 `node`；探测时
 /// 必须注入桌面端已经选定的 Node 目录，否则会把健康 pnpm 误判为不可用（issue #182）。
 fn pnpm_major_version_at_with_node(pnpm: &Path, node: Option<&Path>) -> Option<u32> {
-    let mut cmd = std::process::Command::new(pnpm);
-    cmd.arg("--version");
-    if let Some(path) = pnpm_probe_path(pnpm, node) {
-        cmd.env("PATH", path);
-    }
-    // 打包版是 GUI 进程（无控制台）：版本探测不能弹出可见黑窗。
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let output = match cmd.output() {
+    let output = match pnpm_probe_command(pnpm, node).output() {
         Ok(output) => output,
         Err(error) => {
             log::warn!(
@@ -554,6 +552,32 @@ fn pnpm_major_version_at_with_node(pnpm: &Path, node: Option<&Path>) -> Option<u
         }
     };
     parse_pnpm_major_output(pnpm, &output)
+}
+
+/// 构建 pnpm 版本探测命令：`--version`、注入选定 Node 的 PATH（issue #182）、
+/// Windows 无窗口，并**显式关闭 stdin**。
+///
+/// 探测只需要 `--version` 的标准输出，绝不该等待输入：corepack 在 pnpm 版本
+/// 未缓存时会先问 "Do you want to continue? [Y/n]"，而 GUI 进程继承的 stdin
+/// 句柄无控制台可读，子进程读它会一直挂起——探测只能靠 10 秒超时强杀，用户
+/// 看到的是「pnpm 不能在这台电脑上运行」的安装失败（issue #449）。关闭 stdin
+/// 让这类读取立刻拿到 EOF，探测必定有界结束。有界探测（子进程 + 超时强杀）与
+/// 无界探测（[`user_pnpm_major_version`] 的 `output()`）共用本函数，避免两套
+/// 探测策略再次分叉。
+fn pnpm_probe_command(pnpm: &Path, node: Option<&Path>) -> std::process::Command {
+    let mut command = std::process::Command::new(pnpm);
+    command.arg("--version");
+    if let Some(path) = pnpm_probe_path(pnpm, node) {
+        command.env("PATH", path);
+    }
+    command.stdin(std::process::Stdio::null());
+    // 打包版是 GUI 进程（无控制台）：版本探测不能弹出可见黑窗。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command
 }
 
 fn parse_pnpm_major_output(pnpm: &Path, output: &std::process::Output) -> Option<u32> {
@@ -679,6 +703,82 @@ mod tests {
         let pnpm = PathBuf::from("broken-pnpm");
         let task: Option<()> = probe_task_or_fallback(&pnpm, Err("blocking worker dropped"));
         assert!(task.is_none());
+    }
+
+    /// issue #449 回归：探测超时、但进程已被强杀并回收干净时，必须降级为
+    /// 「用户 pnpm 不可用」（`None` → `ensure_pnpm` 回退捆绑版），而不是把
+    /// `PNPM_PROBE_TIMEOUT` 当成整次插件安装的失败。
+    #[test]
+    fn pnpm_probe_timeout_after_recycled_cleanup_falls_back_to_bundled() {
+        let pnpm = PathBuf::from("slow-pnpm");
+        let fallback = probe_timeout_or_fallback(
+            &pnpm,
+            "PNPM_PROBE_TIMEOUT: pnpm version probe exceeded 10 seconds".to_string(),
+        );
+
+        assert!(
+            fallback.is_none(),
+            "recovered probe timeout must degrade to bundled pnpm, not fail the install"
+        );
+    }
+
+    /// issue #449 根因：探测命令必须显式关闭 stdin。corepack 版本未缓存时会先
+    /// 等待 "Do you want to continue? [Y/n]" 输入，继承 GUI 进程的 stdin 会让
+    /// 探测挂到超时（随后只能强杀）；这里用「读 stdin 才结束」的假 pnpm 走真实
+    /// 的有界探测启动方式（`spawn` + 管道），验证 stdin 关闭后立即拿到版本输出。
+    ///
+    /// 兜底等待：即使回归（stdin 被继承）也只是超时失败并强杀子进程，不会挂住
+    /// 测试进程；stdin 恰好是 /dev/null 的非交互环境无法区分两者，此测试在该
+    /// 环境下退化为「探测可用性」检查。
+    #[cfg(unix)]
+    #[test]
+    fn pnpm_probe_command_closes_stdin_for_interactive_shims() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "dsh-pnpm-probe-stdin-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        // stdin 关闭 → `read` 立即 EOF；stdin 被继承 → `read` 阻塞。
+        let pnpm = root.join("interactive-pnpm");
+        std::fs::write(&pnpm, "#!/bin/sh\nread _\nprintf '11.0.0\\n'\n").unwrap();
+        let mut permissions = std::fs::metadata(&pnpm).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&pnpm, permissions).unwrap();
+
+        let mut child = pnpm_probe_command(&pnpm, None)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut buffer = String::new();
+            let _ = std::io::BufReader::new(stdout).read_to_string(&mut buffer);
+            let _ = sender.send(buffer);
+        });
+
+        let output = match receiver.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(output) => output,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("pnpm version probe must not inherit stdin (it blocks on input)");
+            }
+        };
+        let status = child.wait().unwrap();
+        let _ = reader.join();
+
+        assert!(status.success());
+        assert_eq!(output, "11.0.0\n");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
