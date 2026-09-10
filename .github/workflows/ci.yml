@@ -40,9 +40,9 @@ jobs:
           skip_after_successful_duplicate: true
           paths_ignore: '["**/docs/**", "**/*.md"]'
 
-  # 前端（vitest + typecheck + lint）：
-  frontend:
-    name: Frontend (vitest + typecheck + lint)
+  # 插件（vitest + typecheck + lint）：
+  plugins:
+    name: Plugins (vitest + typecheck + lint)
     needs: pre_job
     if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
     runs-on: ubuntu-latest
