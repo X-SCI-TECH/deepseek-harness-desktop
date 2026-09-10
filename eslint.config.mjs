@@ -7,6 +7,7 @@ export default antfu({
   react: true,
   ignores: [
     'AGENTS.*',
+    'archiving',
     'docs',
   ],
 }, {
