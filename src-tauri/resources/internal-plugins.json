@@ -7,6 +7,13 @@
     "repoUrl": "https://github.com/dsh-tauri-desk/dsh-tauri-plugins/tree/main/packages/dsh-tauri"
   },
   {
+    "id": "dsh-tauri-turnrewind",
+    "spec": "dsh-tauri-turnrewind",
+    "name": "DSH Turn Rewind",
+    "description": "Turn-level workspace undo for the desktop shell: a private Git snapshot per agent turn, a change card at each finished turn (changed files with +N -M), and one-click revert of that turn's file changes with conflict protection.",
+    "repoUrl": "https://github.com/dsh-tauri-desk/deepseek-harness-desktop/tree/main/packages/dsh-tauri-turnrewind"
+  },
+  {
     "id": "dsh-tauri-ui",
     "spec": "dsh-tauri-ui",
     "name": "DSH Tauri UI",

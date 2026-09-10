@@ -4,7 +4,11 @@ export {
   ArrowDownToLine,
   ArrowRight,
   ArrowRotateRight,
+  ArrowUpRight,
+  ArrowUturnCcwLeft,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   CirclePause,
   CirclePlay,
   CircleTree,
@@ -19,6 +23,7 @@ export {
   PlugConnection,
   Plus,
   Puzzle,
+  SquarePlus,
   TrashBin,
 } from './icons'
 export { MenuSelect } from './menu-select'

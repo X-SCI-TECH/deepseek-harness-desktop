@@ -1,0 +1,362 @@
+/**
+ * host/service/capture.ts — turn 生命周期编排：before 快照 → after 快照 → 差异 → 账本。
+ *
+ * 时机（两个内核都已核实）：
+ *   - `agent/pre-step`（step === 1，waterfall，可 await）：**执行屏障**。本函数返回前，
+ *     模型请求与任何工具都不会执行，因此 before 快照必然早于一切文件改动。
+ *   - `session/event` 的 `turn/end`：after 快照与差异在**后台 FIFO**里结算，不阻塞
+ *     turn 落定；`agent/status → idle` 兜底被中断的 turn。
+ *
+ * 并发语义：私有仓的 index/refs 是每个工作区共享的可变状态，所有 git 动作
+ * （捕获、结算、实时读数、容量治理、撤销）都经**同一个** {@link WorkspaceQueue}
+ * 串行——队列实例由 apply 创建并同时交给路由层，撤销因此与捕获互斥。
+ *
+ * 失败语义：任何捕获/统计失败都只写日志 + 账本里记 `unavailable`，绝不抛给 Agent 链路。
+ */
+
+import type { LiveSnapshot, SnapshotStore, TurnFileChange, TurnRecord } from '../types'
+import type { WorkspaceQueue } from './queue'
+import {
+  LIVE_POLL_INTERVAL_MS,
+  REASON_SNAPSHOT_FAILED,
+  REASON_UNSAFE_WORKSPACE,
+} from '../constants'
+import { pruneLooseObjects } from './git'
+import { recordTurn, recordWorkspaceState } from './ledger'
+import { ensureWorkspaceRetention, readExclusions, writeExclusions } from './retention'
+import {
+  captureSnapshot,
+  deleteRefs,
+  diffTurnChanges,
+  liveDiff,
+  scanNestedRepos,
+  snapshotStoreFor,
+  turnRef,
+} from './snapshot'
+import { probeWorkspace } from './workspace'
+
+/** 一个正在进行中的 turn 的捕获状态。 */
+interface ActiveTurn {
+  sessionId: string
+  turn: number
+  workspaceRoot: string | null
+  store: SnapshotStore | null
+  beforeCommit: string | null
+  /** 本 turn 不可撤销的原因（资格拒绝/快照失败）。 */
+  skippedReason: string | null
+  /** 运行中实时读数（before 快照成功后开始轮询更新；`active` 由读取面补上）。 */
+  live: Omit<LiveSnapshot, 'active'> | null
+  liveTimer: ReturnType<typeof setInterval> | null
+  /** 上一次实时刷新是否仍在飞（防止慢仓库堆积轮询）。 */
+  liveBusy: boolean
+  /** 本 turn 应用的排除路径（超限文件 + 嵌套仓库），捕获与实时读数共用。 */
+  exclusions: string[]
+  /** 本 turn 实际被跳过的嵌套仓库。 */
+  nestedDirs: string[]
+  /** before 快照时的快照仓代数（写进账本，供撤销判定过期）。 */
+  generation: string | null
+}
+
+/** 日志面（宿主 logger 的最小契约；缺失时静默）。 */
+export interface CaptureLogger {
+  warn?: (message: string) => void
+  info?: (message: string) => void
+}
+
+export interface TurnCapture {
+  /** pre-step 屏障：完成 before 快照（或明确标记不可撤销）。 */
+  beginTurn: (sessionId: string, turn: number, cwd: unknown) => Promise<void>
+  /** turn 结束后台结算：after 快照 + 差异 + 账本。 */
+  settleTurn: (sessionId: string, turn: number) => Promise<void>
+  /** 会话空闲兜底：结算该会话所有未落定的 turn。 */
+  settleIdle: (sessionId: string) => Promise<void>
+  /** 运行中实时读数（客户端「运行中」提示条轮询）。 */
+  liveState: (sessionId: string) => LiveSnapshot
+  /** 卸载：清定时器并丢弃内存态（在飞任务由调用方等待）。 */
+  dispose: () => void
+}
+
+export interface TurnCaptureOptions {
+  /** 宿主数据根目录。 */
+  dshHome: string
+  /** 工作区级串行队列（与路由层共用，撤销因此与捕获互斥）。 */
+  queue: WorkspaceQueue
+  logger?: CaptureLogger | undefined
+  /** 账本写入成功后的回调（用于触发 hookable 钩子）。 */
+  onCaptured?: ((sessionId: string, turn: number, fileCount: number) => void) | undefined
+}
+
+function activeKey(sessionId: string, turn: number): string {
+  return `${sessionId}:${turn}`
+}
+
+/**
+ * 创建 turn 捕获编排器。
+ * @param options - 数据根目录、共享队列、日志与回调。
+ * @returns 捕获编排器句柄。
+ */
+export function createTurnCapture(options: TurnCaptureOptions): TurnCapture {
+  const { dshHome, queue } = options
+  const logger = options.logger
+  const onCaptured = options.onCaptured
+  const active = new Map<string, ActiveTurn>()
+  let disposed = false
+
+  const warn = (message: string): void => {
+    logger?.warn?.(message)
+  }
+
+  function skippedEntry(sessionId: string, turn: number, parts: { store: SnapshotStore, workspaceRoot: string } | null, reason: string): ActiveTurn {
+    return {
+      sessionId,
+      turn,
+      workspaceRoot: parts?.workspaceRoot ?? null,
+      store: parts?.store ?? null,
+      beforeCommit: null,
+      skippedReason: reason,
+      live: null,
+      liveTimer: null,
+      liveBusy: false,
+      exclusions: [],
+      nestedDirs: [],
+      generation: null,
+    }
+  }
+
+  async function beginTurn(sessionId: string, turn: number, cwd: unknown): Promise<void> {
+    if (disposed)
+      return
+    const key = activeKey(sessionId, turn)
+    if (active.has(key))
+      return
+    const probe = await probeWorkspace(cwd)
+    if (!probe.ok) {
+      // 非 Git / 系统目录 / git 缺失：不建快照。资格结论写进账本供客户端呈现。
+      // 「确实是 Git 仓库但被守卫拒绝」的目录保持 isGit=true，只带不可用原因，
+      // 避免客户端误报「需要 Git 仓库」。
+      await recordWorkspaceState(dshHome, sessionId, {
+        workspaceRoot: null,
+        isGit: probe.reason === REASON_UNSAFE_WORKSPACE,
+        unavailableReason: probe.reason,
+      }).catch(() => undefined)
+      active.set(key, skippedEntry(sessionId, turn, null, probe.reason))
+      return
+    }
+    const store = snapshotStoreFor(dshHome, probe.root, probe.commonDir)
+    // 工作区首次触碰：容量治理（prune 不可达对象 / 超限整仓重建 / 排除清单复检）。
+    const exclusions = await queue.run(probe.root, async () => {
+      const retention = await ensureWorkspaceRetention(store)
+      if (retention?.rebuilt)
+        warn(`dsh-tauri-turnrewind: snapshot repository for ${probe.root} exceeded the size cap and was rebuilt; older turns are now expired`)
+      return retention?.exclusions ?? await readExclusions(store)
+    }).catch(() => [] as string[])
+
+    const nestedDirs = scanNestedRepos(probe.root)
+    const result = await queue.run(probe.root, () =>
+      captureSnapshot(store, turnRef(sessionId, turn, 'before'), `turn ${turn} before`, { exclude: exclusions, nestedDirs }))
+    if (!result.ok) {
+      warn(`dsh-tauri-turnrewind: before snapshot for session ${sessionId} turn ${turn} unavailable: ${result.reason}`)
+      await recordWorkspaceState(dshHome, sessionId, {
+        workspaceRoot: probe.root,
+        isGit: true,
+        unavailableReason: null,
+      }).catch(() => undefined)
+      active.set(key, skippedEntry(sessionId, turn, { store, workspaceRoot: probe.root }, result.reason))
+      return
+    }
+    await recordWorkspaceState(dshHome, sessionId, {
+      workspaceRoot: probe.root,
+      isGit: true,
+      unavailableReason: null,
+    }).catch(() => undefined)
+    // 本轮新学到的排除项（超限文件/嵌套仓库）持久化：后续 turn 不必再付一次重捕代价。
+    if (result.learnedExclusions.length > 0)
+      await writeExclusions(store, [...exclusions, ...result.learnedExclusions])
+
+    const entry: ActiveTurn = {
+      sessionId,
+      turn,
+      workspaceRoot: probe.root,
+      store,
+      beforeCommit: result.commit,
+      skippedReason: null,
+      live: { turn, fileCount: 0, insertions: 0, deletions: 0 },
+      liveTimer: null,
+      liveBusy: false,
+      exclusions: [...new Set([...exclusions, ...result.learnedExclusions])],
+      nestedDirs: result.skippedNestedRepos,
+      generation: store.generation ?? null,
+    }
+    active.set(key, entry)
+    startLivePolling(entry)
+  }
+
+  /**
+   * 运行中轮询：定时把「当前工作区 vs before 快照」的读数刷进 entry.live。
+   * 上一次刷新还在飞就跳过本次（慢仓库/大仓库时不堆积 git 子进程）；
+   * 定时器 unref，不阻止宿主进程退出。
+   */
+  function startLivePolling(entry: ActiveTurn): void {
+    if (entry.liveTimer !== null || entry.store === null || entry.beforeCommit === null)
+      return
+    const timer = setInterval(() => {
+      void refreshLive(entry)
+    }, LIVE_POLL_INTERVAL_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    entry.liveTimer = timer
+  }
+
+  async function refreshLive(entry: ActiveTurn): Promise<void> {
+    if (disposed || entry.liveBusy || entry.store === null || entry.beforeCommit === null)
+      return
+    const store = entry.store
+    const beforeCommit = entry.beforeCommit
+    const workspaceRoot = entry.workspaceRoot
+    if (workspaceRoot === null)
+      return
+    entry.liveBusy = true
+    try {
+      const result = await queue.run(workspaceRoot, () => liveDiff(store, beforeCommit, { exclude: entry.exclusions }))
+      if (result.ok)
+        entry.live = { turn: entry.turn, ...result.stats }
+    }
+    catch (error) {
+      warn(`dsh-tauri-turnrewind: live diff failed: ${String(error)}`)
+    }
+    finally {
+      entry.liveBusy = false
+    }
+  }
+
+  function stopLivePolling(entry: ActiveTurn): void {
+    if (entry.liveTimer !== null) {
+      clearInterval(entry.liveTimer)
+      entry.liveTimer = null
+    }
+    entry.live = null
+  }
+
+  /** 运行中实时读数；没有正在进行的 turn 时返回 active: false。 */
+  function liveState(sessionId: string): LiveSnapshot {
+    for (const entry of active.values()) {
+      if (entry.sessionId !== sessionId || entry.live === null)
+        continue
+      return { active: true, ...entry.live }
+    }
+    return { active: false, turn: null, fileCount: 0, insertions: 0, deletions: 0 }
+  }
+
+  async function settleTurn(sessionId: string, turn: number): Promise<void> {
+    const key = activeKey(sessionId, turn)
+    const entry = active.get(key)
+    if (entry === undefined)
+      return
+    active.delete(key)
+    // 结算即结束运行中提示：先停轮询，再捕 after 快照（读数是过程态，不该跨 turn 残留）。
+    stopLivePolling(entry)
+    if (entry.workspaceRoot === null || entry.store === null)
+      return
+    if (entry.beforeCommit === null) {
+      await recordUnavailable(dshHome, sessionId, entry.turn, entry.skippedReason ?? REASON_SNAPSHOT_FAILED)
+      return
+    }
+    const store = entry.store
+    const workspaceRoot = entry.workspaceRoot
+    const beforeCommit = entry.beforeCommit
+    await queue.run(workspaceRoot, async () => {
+      const after = await captureSnapshot(store, turnRef(sessionId, turn, 'after'), `turn ${turn} after`, {
+        exclude: entry.exclusions,
+        nestedDirs: entry.nestedDirs,
+      })
+      if (!after.ok) {
+        await recordUnavailable(dshHome, sessionId, turn, after.reason)
+        return
+      }
+      const diff = await diffTurnChanges(store, beforeCommit, after.commit)
+      if (!diff.ok) {
+        await recordUnavailable(dshHome, sessionId, turn, REASON_SNAPSHOT_FAILED)
+        return
+      }
+      const record = buildRecord(turn, sessionId, diff.changes, {
+        generation: entry.generation,
+        skippedOversized: after.skippedOversized,
+        skippedNestedRepos: after.skippedNestedRepos,
+      })
+      const mutation = await recordTurn(dshHome, sessionId, record)
+      // 保留窗口淘汰 / 硬上限丢弃：删掉对应 refs，再回收不可达对象（含实时读数留下的
+      // 中间版本 blob）。prune 只在真的淘汰了东西时跑，避免每个 turn 都走一遍对象库。
+      if (mutation.refsToDelete.length > 0) {
+        await deleteRefs(store, mutation.refsToDelete)
+        await pruneLooseObjects(store)
+      }
+      onCaptured?.(sessionId, turn, record.files.length)
+    })
+  }
+
+  async function settleIdle(sessionId: string): Promise<void> {
+    for (const entry of [...active.values()]) {
+      if (entry.sessionId !== sessionId)
+        continue
+      await settleTurn(sessionId, entry.turn)
+    }
+  }
+
+  return {
+    beginTurn,
+    settleTurn,
+    settleIdle,
+    liveState,
+    dispose(): void {
+      disposed = true
+      // 卸载必须清掉每个 active turn 的轮询定时器，否则插件停用后仍会持续拉起 git 子进程。
+      for (const entry of active.values())
+        stopLivePolling(entry)
+      active.clear()
+    },
+  }
+}
+
+function buildRecord(
+  turn: number,
+  sessionId: string,
+  files: TurnFileChange[],
+  extras: { generation: string | null, skippedOversized: string[], skippedNestedRepos: string[] },
+): TurnRecord {
+  let insertions = 0
+  let deletions = 0
+  for (const file of files) {
+    insertions += file.insertions ?? 0
+    deletions += file.deletions ?? 0
+  }
+  return {
+    turn,
+    // 账本只留 ref：commit oid 由 ref 解析（撤销前会重新 rev-parse 校验），
+    // 避免账本与仓库状态出现两份可能漂移的真相。
+    beforeRef: turnRef(sessionId, turn, 'before'),
+    afterRef: turnRef(sessionId, turn, 'after'),
+    files,
+    insertions,
+    deletions,
+    createdAt: Date.now(),
+    undoneAt: null,
+    unavailable: null,
+    generation: extras.generation,
+    skippedOversized: extras.skippedOversized,
+    skippedNestedRepos: extras.skippedNestedRepos,
+  }
+}
+
+/** 记录一个不可撤销的 turn（快照失败/超限），保留原因供卡片呈现。 */
+async function recordUnavailable(dshHome: string, sessionId: string, turn: number, reason: string): Promise<void> {
+  await recordTurn(dshHome, sessionId, {
+    turn,
+    beforeRef: '',
+    afterRef: '',
+    files: [],
+    insertions: 0,
+    deletions: 0,
+    createdAt: Date.now(),
+    undoneAt: null,
+    unavailable: reason,
+  })
+}
