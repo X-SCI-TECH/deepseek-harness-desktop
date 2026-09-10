@@ -631,8 +631,12 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             crate::desktop::pet::init_pet_window(&app_handle);
             setup(app_handle.clone());
             // 方案 1（host → rust → pet）：Rust 作为宿主会话增量 SSE 流的消费者，
-            // 不再依赖 iframe 的 invoke 桥转发（#396 根因）。断连自动重连。
-            crate::bridge::pet::spawn_pet_session_stream(app_handle.clone());
+            // 不再依赖 iframe 的 invoke 桥转发（#396 根因）。断连自动重连；
+            // 仅当桌宠已启用且可见才订阅——关闭桌宠则宿主不做任何转发。
+            crate::bridge::pet::sync_pet_session_stream(
+                &app_handle,
+                crate::bridge::pet::pet_stream_wanted(&app_handle),
+            );
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
