@@ -340,6 +340,11 @@ pub async fn restart_harness(app_handle: AppHandle) -> Result<(), String> {
 /// 错误界面「安全模式」按钮的入口：安全档案只含 web 模板核心 bundles、不带
 /// 用户插件/补丁层，启动失败的插件（如 pending waiting for service）被隔离，
 /// 应用先恢复可用；用户在档案列表切回原档案即退出安全模式。
+///
+/// 档案目录一旦存在就绝不重建，因此里面可能残留此前被装进去的用户插件（内置插件
+/// 自愈与首次引导安装都作用于「当时的活动档案」）；这些插件由启动前的清除流程卸载
+/// （见 `service::plugin::safe::purge_user_plugins_in_safe_profile`），本命令只负责
+/// 切档案——服务仍在运行时删除插件目录不安全，必须等重启后的 spawn 之前再清。
 #[tauri::command]
 pub async fn enter_safe_mode(app_handle: AppHandle) -> Result<(), String> {
     crate::service::profile::ensure_safe_profile(&app_handle)?;
