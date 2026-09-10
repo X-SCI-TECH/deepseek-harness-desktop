@@ -97,19 +97,52 @@ function asPetEvent(event: unknown): PetSessionEvent {
   }
 }
 
+/** `ctx.sessionProjections` 的最小读取面（只读本插件需要的 key，避免运行期依赖）。 */
+interface ProjectionRegistryLike {
+  stateOf?: (session: unknown, key: string) => unknown
+}
+
 /**
  * 插件体：订阅会话增量总线，经 reducer 投影后广播到 SSE 客户端。
+ *
+ * 消费模型（性能约定）：**没有 SSE 消费者就没有监听**。桌宠停用/隐藏后 Rust
+ * 会主动断开订阅（`sync_pet_session_stream`），宿主侧最后一个客户端断开时注销
+ * `session/event` + `session/disposed` 并丢弃累计态；下次有客户端接入再挂载。
+ *
  * @param ctx - 宿主根上下文（注入 webServer / sessions）。
  */
 export function apply(ctx: HostContext): void {
   // 已接入的 SSE 响应句柄（Rust 订阅者）。断连即移除。
   const clients = new Set<Parameters<RouteHandler>[1]>()
+  // 会话出生：首次出现的 id 推 create，随后交由 apply() 推增量 update。
+  const known = new Set<string>()
 
   // 会话标题折叠源：宿主 `sessionTitle` 服务（`session/title` 事件）。可选 —— 未挂载时回退 id。
   const titleService = ctx.get?.('sessionTitle') as
     | { get?: (session: unknown) => { title?: string } | undefined }
     | undefined
-  const titleOf = (session: unknown): string | undefined => titleService?.get?.(session)?.title
+
+  // 投影注册表：`@deepseek-ai/dsh-session-title` 注册了 key='title' 的投影单元。
+  // 惰性解析 —— apply() 时 registry 未必就绪（装配顺序不保证）。
+  let projections: ProjectionRegistryLike | undefined
+  /**
+   * O(新事件) 读取当前标题：注册表按水位线增量推进每个单元的折叠，`stateOf`
+   * 只补齐本会话尚未折叠的事件（每事件全局只折叠一次）。热路径用这个。
+   */
+  function projectedTitleOf(session: unknown): string | undefined {
+    projections ??= ctx.get?.('sessionProjections') as ProjectionRegistryLike | undefined
+    const title = projections?.stateOf?.(session, 'title')
+    return typeof title === 'string' && title ? title : undefined
+  }
+
+  /**
+   * 会话首次出现时的标题：优先投影；投影不可用（未装配 session-projection 或
+   * key 未注册）才退化为 `sessionTitle.get()` —— 后者是 O(整份会话日志) 的
+   * `foldSessionTitle(session.snapshotEvents())`，因此每个会话只允许调用一次。
+   */
+  function titleOnFirstSight(session: unknown): string | undefined {
+    return projectedTitleOf(session) ?? titleService?.get?.(session)?.title
+  }
 
   const reducer = createPetSessionReducer((action, payload) =>
     broadcast(action, payload))
@@ -125,6 +158,58 @@ export function apply(ctx: HostContext): void {
     }
   }
 
+  /** 会话事件监听的注销句柄；undefined = 当前无消费者、未挂载。 */
+  let disposeSessionEvents: (() => void) | undefined
+
+  function handleSessionEvent(session: unknown, event: unknown): void {
+    const petEvent = asPetEvent(event)
+    const id = sessionIdOf(session, petEvent)
+    if (!id)
+      return
+    // 标题：首次出现走一次「投影 → 全量折叠」；此后只读 O(1) 投影（不可用时
+    // 由 reducer 的 session/title 分支增量带入，绝不重新全量折叠）。
+    const firstSight = !known.has(id)
+    if (firstSight)
+      known.add(id)
+    const peer = firstSight
+      ? peerOf(session, petEvent, titleOnFirstSight)
+      : peerOf(session, petEvent, projectedTitleOf)
+    if (firstSight)
+      reducer.create(peer)
+    reducer.apply(peer, petEvent)
+  }
+
+  function handleSessionDisposed(session: unknown): void {
+    // remove 载荷只用 id：这里同样不折叠标题，避免销毁路径再付一次 O(日志) 成本。
+    const peer = peerOf(session, { type: '', seq: 0, time: 0, data: {} })
+    if (!peer.id)
+      return
+    known.delete(peer.id)
+    reducer.remove(peer.id)
+  }
+
+  /** 首个消费者接入：挂载会话事件监听（幂等）。 */
+  function attachSessionEvents(): void {
+    if (disposeSessionEvents !== undefined)
+      return
+    const disposeEvent = ctx.on('session/event', handleSessionEvent) as () => void
+    const disposeDisposed = ctx.on('session/disposed', handleSessionDisposed) as () => void
+    disposeSessionEvents = () => {
+      disposeEvent()
+      disposeDisposed()
+    }
+  }
+
+  /** 最后一个消费者断开：注销监听并丢弃累计态，下次订阅从零重建。 */
+  function detachSessionEvents(): void {
+    if (disposeSessionEvents === undefined)
+      return
+    disposeSessionEvents()
+    disposeSessionEvents = undefined
+    reducer.clear()
+    known.clear()
+  }
+
   const sseHandler: RouteHandler = (request, response) => {
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -135,6 +220,8 @@ export function apply(ctx: HostContext): void {
     })
     response.write('retry: 1000\n\n')
     clients.add(response)
+    // 有消费者才开始监听会话总线（桌宠关闭时 Rust 不会连上来）。
+    attachSessionEvents()
     // 心跳注释帧，防止代理/空闲断连。
     const ping = setInterval(() => {
       for (const res of clients) {
@@ -149,6 +236,9 @@ export function apply(ctx: HostContext): void {
     const onClose = () => {
       clients.delete(response)
       clearInterval(ping)
+      // 无消费者：注销监听，热路径彻底退出（桌宠重新打开会自动重连并挂载）。
+      if (clients.size === 0)
+        detachSessionEvents()
       try {
         response.end()
       }
@@ -160,34 +250,6 @@ export function apply(ctx: HostContext): void {
     request.on('error', onClose)
   }
 
-  // 会话出生：首次出现的 id 推 create，随后交由 apply() 推增量 update。
-  const known = new Set<string>()
-  ctx.on('session/event', (session: unknown, event: unknown) => {
-    const petEvent = asPetEvent(event)
-    const id = sessionIdOf(session, petEvent)
-    if (!id)
-      return
-    // 标题折叠是 O(整份会话日志)：只在会话首次出现时读一次，之后的标题变化由
-    // `session/title` 事件增量带入（reducer 已处理），热路径上不再触碰 title 服务。
-    const firstSight = !known.has(id)
-    if (firstSight)
-      known.add(id)
-    const peer = firstSight
-      ? peerOf(session, petEvent, titleOf)
-      : peerOf(session, petEvent)
-    if (firstSight)
-      reducer.create(peer)
-    reducer.apply(peer, petEvent)
-  })
-  ctx.on('session/disposed', (session: unknown) => {
-    // remove 载荷只用 id：这里同样不折叠标题，避免销毁路径再付一次 O(日志) 成本。
-    const peer = peerOf(session, { type: '', seq: 0, time: 0, data: {} })
-    if (!peer.id)
-      return
-    known.delete(peer.id)
-    reducer.remove(peer.id)
-  })
-
   // 路由注册 + 卸载清理。
   ctx.effect(() => {
     const disposeRoute = ctx.webServer.register({
@@ -197,6 +259,7 @@ export function apply(ctx: HostContext): void {
     })
     return () => {
       disposeRoute()
+      detachSessionEvents()
       for (const res of clients) {
         try {
           res.end()

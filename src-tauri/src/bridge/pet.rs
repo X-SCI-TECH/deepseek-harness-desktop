@@ -193,6 +193,8 @@ pub fn set_pet_enabled(app: AppHandle, enabled: bool) -> Result<PetStatus, Strin
         .unwrap_or_else(|error| error.into_inner())
         .visible = enabled;
     pet_window::set_pet_window_visible(&app, enabled)?;
+    // 停用即无消费者：停掉宿主会话流订阅（启用时窗口已可见，直接恢复订阅）。
+    sync_pet_session_stream(&app, enabled);
     let status = status_from_setting(&updated);
     emit_pet_status(&app, &status);
     Ok(status)
@@ -336,10 +338,46 @@ async fn consume_pet_session_stream(app: &AppHandle, url: &str) -> Result<(), St
     Ok(())
 }
 
-/// 启动「宿主会话增量 SSE」消费后台任务（见 consume_pet_session_stream）。
-/// 应用 setup 时调用一次；内部无限重连。
-pub fn spawn_pet_session_stream(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
+/// 会话增量流消费任务的句柄：桌宠停用/隐藏时 abort，宿主侧 SSE 客户端随连接
+/// 关闭归零（宿主插件据此注销 `session/event` 监听）。
+fn pet_stream_handle() -> &'static Mutex<Option<tauri::async_runtime::JoinHandle<()>>> {
+    static HANDLE: OnceLock<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> = OnceLock::new();
+    HANDLE.get_or_init(|| Mutex::new(None))
+}
+
+/// 是否需要订阅宿主会话增量流：桌宠已启用且窗口可见。
+///
+/// 临时隐藏（`hide_pet`）同样视为无消费者——窗口不渲染时转发毫无意义，停掉
+/// 订阅即让宿主的热路径与逐会话累计态一并短路。
+pub fn pet_stream_wanted(app: &AppHandle) -> bool {
+    let status = status_from_setting(&config::get_store_dat_setting(app));
+    status.enabled && status.visible
+}
+
+/// 按「是否有消费者」启停「宿主会话增量 SSE」消费任务（见
+/// [`consume_pet_session_stream`]），幂等：启用且无活动任务才 spawn；停用时
+/// abort 任务，连接立即关闭。
+///
+/// 调用点：应用 setup、`set_pet_enabled` / `show_pet` / `hide_pet`。桌宠关闭或
+/// 隐藏后 Rust 不再是宿主流的消费者，宿主侧随即不再为桌宠做任何转发。
+pub fn sync_pet_session_stream(app: &AppHandle, wanted: bool) {
+    let slot = pet_stream_handle();
+    let mut handle = slot.lock().unwrap_or_else(|error| error.into_inner());
+    if !wanted {
+        if let Some(task) = handle.take() {
+            task.abort();
+            log::info!("[pet-stream] host session stream stopped (pet disabled or hidden)");
+        }
+        return;
+    }
+    if handle
+        .as_ref()
+        .is_some_and(|task| !task.inner().is_finished())
+    {
+        return;
+    }
+    let app = app.clone();
+    *handle = Some(tauri::async_runtime::spawn(async move {
         loop {
             let setting = config::get_store_dat_setting(&app);
             let url = format!("http://127.0.0.1:{}{}", setting.port, SESSION_STREAM_PATH);
@@ -353,7 +391,7 @@ pub fn spawn_pet_session_stream(app: AppHandle) {
             }
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
-    });
+    }));
 }
 
 /// 按物理像素增量移动桌宠窗口，限制在可见显示器并保存最终位置。
@@ -377,6 +415,8 @@ pub fn show_pet(app: AppHandle) -> Result<PetStatus, String> {
         .unwrap_or_else(|error| error.into_inner())
         .visible = true;
     pet_window::set_pet_window_visible(&app, true)?;
+    // 恢复显示 = 重新有消费者：重开会话流订阅。
+    sync_pet_session_stream(&app, true);
     let status = status_from_setting(&setting);
     emit_pet_status(&app, &status);
     Ok(status)
@@ -390,6 +430,8 @@ pub fn hide_pet(app: AppHandle) -> Result<PetStatus, String> {
         .unwrap_or_else(|error| error.into_inner())
         .visible = false;
     pet_window::set_pet_window_visible(&app, false)?;
+    // 隐藏 = 无人渲染：停掉宿主会话流订阅，宿主侧热路径整条短路。
+    sync_pet_session_stream(&app, false);
     let status = status_from_setting(&config::get_store_dat_setting(&app));
     emit_pet_status(&app, &status);
     Ok(status)
