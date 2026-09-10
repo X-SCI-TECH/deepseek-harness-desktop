@@ -17,8 +17,6 @@ import { GIT_TIMEOUT_MS } from '../constants'
 
 /** 单次 git 调用的可选项。 */
 export interface GitRunOptions {
-  /** 写入 stdin 的内容（`--stdin` 类命令）。 */
-  input?: string
   /** 追加/覆盖的环境变量。 */
   env?: Record<string, string>
   /** 墙钟超时；缺省 5 分钟。 */
@@ -55,8 +53,12 @@ function execGit(cwd: string, args: string[], options: GitRunOptions): Promise<G
         resolve({ ok: true, out: String(stdout ?? '') })
       },
     )
-    // execFile 的 stdin 是管道：不给输入时必须显式结束，否则等待 stdin 的命令会挂到超时。
-    child.stdin?.end(options.input ?? '')
+    // execFile 默认给 stdin 开管道，而子进程往往在写入前就已退出：Linux 上那次写入会
+    // 以 **未处理的 EPIPE** 冒泡（CI 稳定复现；Windows 管道语义不同未触发）。
+    // 这里显式吞掉 stdin 的错误事件——真正的失败仍然由上面的回调统一上报。
+    child.stdin?.on('error', () => {})
+    // 本插件的 git 命令都不读 stdin（参数全部走 argv），但仍显式结束，避免子进程挂在等 stdin 上。
+    child.stdin?.end()
   })
 }
 
