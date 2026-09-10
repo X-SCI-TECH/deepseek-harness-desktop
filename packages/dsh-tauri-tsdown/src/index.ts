@@ -2,21 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 
-/**
- * tsdown 单条构建配置（宽松面；运行时由 tsdown 校验）。
- *
- * `target` 需要显式透出：tsdown 的 `warnLegacyCJS`（features/cjs.ts）会对
- * format 含 cjs 且解析出 Node >= 22.12 target（由 package.json `engines.node`
- * 推断）的配置发出 "We recommend using the ESM format instead of CommonJS"
- * 警告，默认 `failOnWarn: 'ci-only'` 在 CI 下把它升级为 exit 1 的 ERROR。
- * client bundle 并不运行在 Node 上（见下方 client 配置注释），声明了
- * `engines.node` 的插件应在 client 侧给定一个 ES/web target 来修正该推断，
- * 而不是关掉 failOnWarn 让其余所有警告失去 CI 约束力。
- */
-type TsdownOptions = Record<string, unknown> & {
-  noExternal?: Array<string | RegExp>
-  target?: string | string[] | false
-}
+/** tsdown 单条构建配置（宽松面；运行时由 tsdown 校验）。 */
+type TsdownOptions = Record<string, unknown> & { noExternal?: Array<string | RegExp> }
 
 /** 是否处于 watch/dev 模式（dev:plugins → `tsdown --watch` 常驻）：跳过 minify 加速热重建。 */
 const isWatchMode = process.argv.includes('--watch') || process.argv.includes('-w')
@@ -120,13 +107,7 @@ export function defineDshConfig(options: DshConfigOptions = {}) {
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       ...clientBundleRegistration(),
       // The client entry is deliberately a classic CJS script wrapped by ModuleLoader;
-      // publint's ESM/CJS default-export heuristic is inapplicable. This CJS is
-      // intentional and NOT a Node-published format: the bundle runs inside the DSH Web
-      // ModuleLoader (Chromium webview). tsdown's warnLegacyCJS only fires when the
-      // resolved target claims Node >= 22.12 (its default inference from
-      // `engines.node`), so packages declaring `engines.node` keep all warnings
-      // CI-fatal by pinning an explicit client `target` (ES/web) via `client.target`
-      // instead of disabling `failOnWarn`.
+      // publint's ESM/CJS default-export heuristic is inapplicable.
       publint: false,
       dts: false,
       sourcemap: true,
