@@ -13,6 +13,16 @@
 //! 新建档案时按官方 `dsh-app-boot` 的 `initProfile` 形态初始化目录：
 //! `package.json`（含 web 模板 bundles）+ `cordis.patch.yml` + `pnpm-workspace.yaml`，
 //! 与 CLI 侧产物完全一致，两边可互相操作。
+//!
+//! 核心 bundle 层自愈（issue #452）：`dsh.profile.bundles` 必须始终带
+//! `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`（顺序即补丁层应用顺序）。
+//! 目录「已存在」不等于「档案已就绪」——CLI 侧 `dsh plugin add` 对没有
+//! `package.json` 的目录会用 `DEFAULT_PROFILE_BUNDLES`（**只有 dsh-base**）初始化，
+//! 中断的首次初始化、外部 mkdir、用户手工编辑清单都会留下缺 web 层的档案。此时
+//! 宿主不会提供 webServer/connection/webRuntime，内置插件与市场插件全部停在
+//! pending，服务启动必然失败。因此 [`init_profile_dir`] 与 spawn 前自愈
+//! （[`ensure_active_profile_core_bundles`]）都会校核并**补齐**核心层：只前插
+//! 缺失的核心 bundle，绝不删除或改写任何用户/内置插件条目。
 
 use crate::config;
 use crate::service::fs_guard;
@@ -39,6 +49,17 @@ pub const SAFE_PROFILE: &str = "safe";
 /// `@deepseek-ai/dsh-web-app`，与 dsh-app-boot `PROFILE_TEMPLATES.web` 一致）。
 /// 桌面端内嵌的是 dsh web 应用，新档案不带 `dsh-web-app` 将无法渲染任何界面。
 const WEB_PROFILE_BUNDLES: [&str; 2] = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
+
+/// CLI 侧其它 surface 的 bundle（dsh-app-boot `PROFILE_TEMPLATES` 中除 web 外的
+/// 模板）。它们与 web 层存在同名 insert 行（如 `code-runtime`），把 web 层叠加到
+/// 这类档案上会让 loader 抛 `duplicate loader entry` 硬崩溃，因此核心 bundle 层
+/// 自愈必须避开它们（见 [`ensure_profile_core_bundles`]）。
+const NON_WEB_SURFACE_BUNDLES: [&str; 4] = [
+    "@deepseek-ai/dsh-headless",
+    "@deepseek-ai/dsh-acp-app",
+    "@deepseek-ai/dsh-sdk-app",
+    "@deepseek-ai/dsh-sdk-minimal",
+];
 
 /// dsh `initProfile` 生成的空 patch 层（与官方一致）
 const PROFILE_PATCH_TEMPLATE: &str = "# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries (id-targeted config\n# overrides, disables, and insert lists; `!!js` expressions allowed).\n[]\n";
@@ -266,17 +287,15 @@ pub fn set_active(app_handle: &AppHandle, id: &str) -> Result<Profile, String> {
         .ok_or_else(|| "PROFILE_NOT_FOUND: profile disappeared after switch".to_string())
 }
 
-/// 确保首装引导档案目录存在（以 `profiles_root` 注入，便于单测）。
+/// 确保首装引导档案目录存在且含核心 web bundle 层（以 `profiles_root` 注入，便于单测）。
 ///
-/// 幂等且绝不覆盖：目录已存在（含 CLI 侧手动创建的同名档案）时直接复用；
-/// 缺失时按官方 `initProfile` 形态初始化（web 模板 bundles，可正常渲染桌面
-/// 内嵌的 web UI）。
+/// 幂等且绝不覆盖：目录已存在（含 CLI 侧手动创建的同名档案）时复用其依赖、
+/// 插件与补丁层，只补齐缺失的档案文件与核心 bundle 条目。**不能只判断目录是否
+/// 存在**：`dsh plugin add` 对无 `package.json` 的目录会按 `DEFAULT_PROFILE_BUNDLES`
+/// （仅 dsh-base）初始化，若把这种半初始化目录当作「已就绪」，缺失的
+/// `@deepseek-ai/dsh-web-app` 会让桌面端此后每次启动都失败（issue #452）。
 fn ensure_desktop_profile_with_root(profiles_root: &Path) -> Result<(), String> {
-    let dir = profiles_root.join(DESKTOP_PROFILE);
-    if dir.is_dir() {
-        return Ok(());
-    }
-    init_profile_dir(&dir, DESKTOP_PROFILE)
+    init_profile_dir(&profiles_root.join(DESKTOP_PROFILE), DESKTOP_PROFILE)
 }
 
 /// 首装档案引导：桌面端首次安装时新建独立的 Desktop 档案并切换为当前档案。
@@ -309,19 +328,15 @@ pub fn ensure_first_run_desktop_profile(app_handle: &AppHandle) {
     log::info!("First-run bootstrap: Desktop profile created and activated ({DESKTOP_PROFILE})");
 }
 
-/// 确保安全模式档案目录存在（幂等，绝不覆盖）。
+/// 确保安全模式档案目录存在且含核心 web bundle 层（幂等，绝不覆盖用户改动）。
 ///
-/// 与 `ensure_desktop_profile_with_root` 同构：缺失时按官方 `initProfile` 形态
-/// 初始化（web 模板 bundles，可正常渲染桌面内嵌的 web UI），已存在时直接复用。
+/// 与 `ensure_desktop_profile_with_root` 同构：已存在时复用档案内容，只补齐缺失的
+/// 档案文件与核心 bundle 条目（web 模板 bundles，可正常渲染桌面内嵌的 web UI）。
 /// 安全档案只含核心 bundles 与空 patch 层——不装任何用户插件，用于错误界面
 /// 「安全模式」按钮把问题插件隔离在启动链路之外。
 pub fn ensure_safe_profile(app_handle: &AppHandle) -> Result<(), String> {
     let profiles_root = config::get_dsh_data_path(app_handle).join("profiles");
-    let dir = profiles_root.join(SAFE_PROFILE);
-    if dir.is_dir() {
-        return Ok(());
-    }
-    init_profile_dir(&dir, SAFE_PROFILE)
+    init_profile_dir(&profiles_root.join(SAFE_PROFILE), SAFE_PROFILE)
 }
 
 /// 删除档案（默认档案与使用中的档案不可删除）。
@@ -492,23 +507,177 @@ fn rewrite_manifest_name(dir: &Path, new_id: &str) -> Result<(), String> {
 }
 
 /// 初始化档案目录：与官方 `dsh-app-boot::initProfile` 的产物一致
-/// （web 模板 bundles；已有文件绝不覆盖，重跑为 no-op）。
+/// 官方 `initProfile` 形态的档案清单（web 模板 bundles）。
+fn web_profile_manifest(id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": format!("dsh-profile-{id}"),
+        "private": true,
+        "dependencies": {},
+        "dsh": { "profile": { "bundles": WEB_PROFILE_BUNDLES } }
+    })
+}
+
+/// 校核并补齐档案的核心 web bundle 层，返回是否写回了清单。
+///
+/// 覆盖三种状态，全部只做「补齐」、绝不删除或改写其它字段：
+/// - 清单缺失（目录被外部创建、初始化中断、被清理）→ 按官方 `initProfile` 形态
+///   写入 web 模板清单；
+/// - 清单存在但缺核心 bundle（典型：`dsh plugin add` 用
+///   `DEFAULT_PROFILE_BUNDLES` 初始化出的「只有 dsh-base + 插件」档案）→ 把核心
+///   bundle 前插回列表头部，保持 `dsh-base` → `dsh-web-app` 的补丁应用顺序；
+/// - 清单已含核心 bundle → 不写盘（幂等，避免无谓改写用户文件）。
+///
+/// 清单不可读/不可解析（外部截断、非对象、`dsh`/`profile` 非对象）时报错交由
+/// 调用方告警：这种状态可能承载用户数据，宁可留着让人工处理，也绝不静默重建。
+///
+/// 非 web 表面的档案（CLI 侧 headless/acp/sdk 模板）一律不动：它们与 web 层有
+/// 同名 insert（如 `code-runtime`），叠加会触发 `duplicate loader entry` 硬崩溃；
+/// 桌面端无法承载这类档案，但绝不能为了「修好桌面端」而破坏 CLI 用途的档案。
+fn ensure_profile_core_bundles(dir: &Path, id: &str) -> Result<bool, String> {
+    let manifest_path = dir.join("package.json");
+    let mut manifest: serde_json::Value = match fs::read_to_string(&manifest_path) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(|e| {
+            format!(
+                "PROFILE_MANIFEST_PARSE_FAILED: {}: {e}",
+                manifest_path.display()
+            )
+        })?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(dir).map_err(|e| format!("PROFILE_MKDIR: {e}"))?;
+            let manifest = web_profile_manifest(id);
+            write_profile_manifest_file(&manifest_path, &manifest)?;
+            log::info!(
+                "Profile manifest created with the official web template: {}",
+                manifest_path.display()
+            );
+            return Ok(true);
+        }
+        Err(error) => {
+            return Err(format!(
+                "PROFILE_MANIFEST_READ_FAILED: {}: {error}",
+                manifest_path.display()
+            ))
+        }
+    };
+
+    let existing = manifest
+        .pointer("/dsh/profile/bundles")
+        .and_then(serde_json::Value::as_array);
+    let current: Vec<String> = existing
+        .map(|bundles| {
+            bundles
+                .iter()
+                .filter_map(|bundle| bundle.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(foreign) = current
+        .iter()
+        .find(|bundle| NON_WEB_SURFACE_BUNDLES.contains(&bundle.as_str()))
+    {
+        log::warn!(
+            "PROFILE_CORE_BUNDLES_SKIPPED: profile {id} is a non-web dsh surface ({foreign}); \
+             leaving {} untouched (the web layer would duplicate loader entries)",
+            manifest_path.display()
+        );
+        return Ok(false);
+    }
+
+    // 核心层固定在列表最前（补丁层按 `dsh.profile.bundles` 顺序应用，
+    // dsh-web-app 的覆写行必须在 dsh-base 之后落地）；其余条目原样保留相对顺序，
+    // 因此已就绪的档案得到与输入完全一致的列表（幂等）。
+    let mut desired: Vec<String> = WEB_PROFILE_BUNDLES
+        .iter()
+        .map(|bundle| (*bundle).to_string())
+        .collect();
+    desired.extend(
+        current
+            .iter()
+            .filter(|bundle| !WEB_PROFILE_BUNDLES.contains(&bundle.as_str()))
+            .cloned(),
+    );
+    if existing.is_some() && current == desired {
+        return Ok(false);
+    }
+
+    let root = manifest
+        .as_object_mut()
+        .ok_or_else(|| format!("PROFILE_MANIFEST_NOT_OBJECT: {}", manifest_path.display()))?;
+    let dsh = root
+        .entry("dsh".to_string())
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            format!(
+                "PROFILE_MANIFEST_DSH_NOT_OBJECT: {}",
+                manifest_path.display()
+            )
+        })?;
+    let profile = dsh
+        .entry("profile".to_string())
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            format!(
+                "PROFILE_MANIFEST_PROFILE_NOT_OBJECT: {}",
+                manifest_path.display()
+            )
+        })?;
+    profile.insert("bundles".to_string(), serde_json::json!(desired));
+    write_profile_manifest_file(&manifest_path, &manifest)?;
+    log::warn!(
+        "PROFILE_CORE_BUNDLES_RESTORED: profile {id} was missing the web core bundle layer; \
+         restored {:?} before {:?} in {}",
+        WEB_PROFILE_BUNDLES,
+        current,
+        manifest_path.display()
+    );
+    Ok(true)
+}
+
+/// 写回档案清单（pretty JSON + 尾换行，与 dsh `initProfile` 产物形态一致）。
+///
+/// 同目录临时文件 + rename 原子替换（与 `service::plugin::internal` 的清单写回同
+/// 一策略）：写入中途崩溃/断电不会留下截断的 `package.json`——不可解析的清单不在
+/// 自愈范围内（可能承载用户数据，只报错不重建），截断即等于把可恢复状态变成
+/// 永久不可恢复。
+fn write_profile_manifest_file(path: &Path, manifest: &serde_json::Value) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(manifest)
+        .map_err(|e| format!("PROFILE_MANIFEST_RENDER: {e}"))?;
+    let temp = path.with_extension(format!("json.profile.{}.tmp", std::process::id()));
+    if let Err(e) = fs::write(&temp, format!("{content}\n")) {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("PROFILE_MANIFEST_WRITE: {e}"));
+    }
+    if let Err(e) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("PROFILE_MANIFEST_WRITE: {e}"));
+    }
+    Ok(())
+}
+
+/// spawn dsh 之前调用：确保当前档案带上桌面端内嵌 web UI 依赖的核心 bundle 层。
+///
+/// 返回是否发生了补齐。`web` 等官方模板档案缺失时交由 dsh 按模板初始化（这里
+/// 不抢先建目录）；档案已存在但缺核心层（issue #452 的「只有 dsh-base + 插件」
+/// 形态：宿主不提供 webServer/connection，内置插件恒为 pending，服务必然启动
+/// 失败）时补齐并写回，令本轮启动即可恢复。
+pub fn ensure_active_profile_core_bundles(app_handle: &AppHandle) -> Result<bool, String> {
+    let id = active_profile(app_handle);
+    let dir = profile_dir_of(app_handle, &id);
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    ensure_profile_core_bundles(&dir, &id)
+}
+
+/// 初始化档案目录：与官方 `dsh-app-boot::initProfile` 的产物一致
+/// （web 模板 bundles；已有文件绝不覆盖，重跑为 no-op），并补齐既有清单缺失的
+/// 核心 web bundle 层（见 [`ensure_profile_core_bundles`]）。
 fn init_profile_dir(dir: &Path, id: &str) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("PROFILE_MKDIR: {e}"))?;
 
-    let manifest_path = dir.join("package.json");
-    if !manifest_path.exists() {
-        let manifest = serde_json::json!({
-            "name": format!("dsh-profile-{id}"),
-            "private": true,
-            "dependencies": {},
-            "dsh": { "profile": { "bundles": WEB_PROFILE_BUNDLES } }
-        });
-        let content = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| format!("PROFILE_MANIFEST_RENDER: {e}"))?;
-        fs::write(&manifest_path, format!("{content}\n"))
-            .map_err(|e| format!("PROFILE_MANIFEST_WRITE: {e}"))?;
-    }
+    ensure_profile_core_bundles(dir, id)?;
 
     let patch_path = dir.join("cordis.patch.yml");
     if !patch_path.exists() {
@@ -749,6 +918,165 @@ mod tests {
             std::fs::read_to_string(dir.join("cordis.patch.yml")).unwrap(),
             "# user edit\n[]\n"
         );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// issue #452 回归：`dsh plugin add` 会把缺 `package.json` 的目录按
+    /// `DEFAULT_PROFILE_BUNDLES`（只有 dsh-base）初始化，留下「缺 web 层」的档案；
+    /// 引导必须把核心层补回列表最前，且不动用户/内置插件条目与其它字段。
+    #[test]
+    fn core_bundles_restored_before_plugin_entries_without_touching_other_fields() {
+        let dir = std::env::temp_dir().join(format!("dsh-profile-core-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({
+            "name": "dsh-profile-desktop",
+            "private": true,
+            "dependencies": { "dsh-tauri-pet": "link:C:/app/resources/node_modules/dsh-tauri-pet" },
+            "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "dsh-tauri-pet", "dsh-better-sidebar"] } }
+        });
+        std::fs::write(
+            dir.join("package.json"),
+            format!("{}\n", serde_json::to_string_pretty(&manifest).unwrap()),
+        )
+        .unwrap();
+
+        assert!(ensure_profile_core_bundles(&dir, "desktop").unwrap());
+
+        let repaired: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        // 核心层回到最前（顺序 = 补丁层应用顺序：base 先、web-app 后），用户插件保序
+        assert_eq!(
+            repaired["dsh"]["profile"]["bundles"],
+            serde_json::json!([
+                "@deepseek-ai/dsh-base",
+                "@deepseek-ai/dsh-web-app",
+                "dsh-tauri-pet",
+                "dsh-better-sidebar"
+            ])
+        );
+        // 依赖声明、名称等其它字段原样保留
+        assert_eq!(repaired["name"], "dsh-profile-desktop");
+        assert_eq!(
+            repaired["dependencies"]["dsh-tauri-pet"],
+            "link:C:/app/resources/node_modules/dsh-tauri-pet"
+        );
+
+        // 幂等：已含核心层的档案不再写盘（内容逐字节不变）
+        let before = std::fs::read_to_string(dir.join("package.json")).unwrap();
+        assert!(!ensure_profile_core_bundles(&dir, "desktop").unwrap());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("package.json")).unwrap(),
+            before
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 非 web 表面（CLI 的 headless/acp/sdk 档案）不参与 web 层补齐：web 层与其
+    /// 存在同名 insert（`code-runtime`），叠加会 duplicate loader entry 硬崩溃。
+    #[test]
+    fn core_bundles_repair_skips_non_web_surfaces() {
+        let dir = std::env::temp_dir().join(format!("dsh-profile-surface-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = r#"{"name":"dsh-profile-headless","private":true,"dependencies":{},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-headless"]}}}"#;
+        std::fs::write(dir.join("package.json"), raw).unwrap();
+
+        assert!(!ensure_profile_core_bundles(&dir, "headless").unwrap());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("package.json")).unwrap(),
+            raw,
+            "non-web surface profile must stay untouched"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 目录存在但清单缺失（初始化中断 / 外部 mkdir / 被清理）→ 补写官方 web 模板清单。
+    #[test]
+    fn core_bundles_seeded_when_manifest_is_missing() {
+        let dir = std::env::temp_dir().join(format!("dsh-profile-seed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!dir.join("package.json").exists());
+
+        assert!(ensure_profile_core_bundles(&dir, "desktop").unwrap());
+
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["name"], "dsh-profile-desktop");
+        assert_eq!(manifest["private"], true);
+        assert_eq!(manifest["dependencies"], serde_json::json!({}));
+        assert_eq!(
+            manifest["dsh"]["profile"]["bundles"],
+            serde_json::json!(["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"])
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 清单可损坏但可能承载用户数据：解析失败时只报错，绝不静默重建/改写。
+    #[test]
+    fn core_bundles_repair_refuses_to_clobber_corrupt_manifest() {
+        let dir = std::env::temp_dir().join(format!("dsh-profile-corrupt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for raw in [
+            "{ not json",
+            "[]",
+            r#"{"dsh":"x"}"#,
+            r#"{"dsh":{"profile":"y"}}"#,
+        ] {
+            std::fs::write(dir.join("package.json"), raw).unwrap();
+            assert!(
+                ensure_profile_core_bundles(&dir, "desktop").is_err(),
+                "corrupt manifest {raw:?} must be reported, not rewritten"
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.join("package.json")).unwrap(),
+                raw,
+                "corrupt manifest {raw:?} must stay untouched"
+            );
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 首装引导必须修复「目录已存在但缺 web 层」的半初始化档案（issue #452 形态）。
+    #[test]
+    fn desktop_bootstrap_repairs_partially_initialized_profile() {
+        let tmp = std::env::temp_dir().join(format!("dsh-profile-partial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("profiles");
+        let dir = root.join(DESKTOP_PROFILE);
+        std::fs::create_dir_all(&dir).unwrap();
+        // `dsh plugin add` 的初始化产物：只有 dsh-base + 插件，没有任何 web 层
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"name":"dsh-profile-desktop","private":true,"dependencies":{"dsh-tauri":"link:C:/app/resources/node_modules/dsh-tauri"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-tauri"]}}}"#,
+        )
+        .unwrap();
+
+        ensure_desktop_profile_with_root(&root).unwrap();
+
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            manifest["dsh"]["profile"]["bundles"],
+            serde_json::json!([
+                "@deepseek-ai/dsh-base",
+                "@deepseek-ai/dsh-web-app",
+                "dsh-tauri"
+            ])
+        );
+        // 档案的其余文件同样补齐（半初始化目录 → 完整档案）
+        assert!(dir.join("cordis.patch.yml").is_file());
+        assert!(dir.join("pnpm-workspace.yaml").is_file());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
