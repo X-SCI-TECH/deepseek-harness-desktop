@@ -43,20 +43,41 @@ export type Translate = (key: LocaleKey) => string
 /**
  * 槽位宿主：结构化接口而非 cordis Context——上游 cordis 版本的 Context 有
  * 更多必需属性，直接引用会因类型版本差异在 CI 上报 TS2345。
+ *
+ * `register` 的 options 覆盖两类槽位形态：keyed（commandview 用 `key`）与
+ * list（动作条用 `id` + `order`，可选 `locale`/`inject`）。
  */
 export interface SlotHost {
   slots: {
     inject: (slot: string, factory: () => () => void) => () => void
-    register: (options: { name: string, id: string, key: string }, component: unknown) => () => void
+    register: (options: {
+      name: string
+      id?: string
+      key?: string
+      order?: number
+      locale?: string
+      inject?: unknown
+    }, component: unknown) => () => void
   }
 }
 
-/** `conversation.chat.turnTail` 的槽位 props（DSH 每个完成 turn 渲染一次）。 */
-export interface TurnTailProps {
-  /** DSH 事件里的数字 turn 号（账本 turn id 的后半段）。 */
-  turn?: unknown
-  seq?: unknown
-  openFile?: unknown
+/** 会话快照上的选择器钩子（框架标准 kit；会话作用域槽位组件都会拿到）。 */
+export type SessionSelectorHook = <T>(selector: (snapshot: never) => T) => T
+
+/**
+ * `conversation.chat.assistant-actions` 的槽位 props：owner 只给这一条消息的
+ * 身份，turn 号由组件自己从会话快照反查（见 utils/turn-action 的
+ * `selectTurnForMessage`）。`sessionId`/`useSession` 来自框架标准 kit。
+ */
+export interface TurnActionProps {
+  /** 该动作条所属的已定稿助手消息 id。 */
+  messageId?: unknown
+  /** 当前会话 id（框架标准 kit）。 */
+  sessionId?: unknown
+  /** 会话快照选择器钩子（框架标准 kit）。 */
+  useSession?: SessionSelectorHook
+  /** locale 取词（注册时声明了 locale 命名空间才会注入）。 */
+  t?: Translate
 }
 
 /** turn 尾部按钮的装配通道（apply 注入，register 侧组件消费）。 */

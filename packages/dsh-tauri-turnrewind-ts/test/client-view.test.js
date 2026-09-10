@@ -5,9 +5,10 @@ import * as client from '../src/client/index'
 
 it('exposes the cordis plugin face and pure helpers', () => {
   assert.equal(typeof client.apply, 'function')
-  // `remote` 必须在列：turn 尾部按钮读 ctx.remote 执行 /undo，未声明 inject 时
-  // cordis 代理会抛，整个插件 apply 失败（线上复现过 Failed to load plugins）。
-  assert.deepEqual(client.inject, ['slots', 'sessions', 'locale', 'remote'])
+  // `remote` 与 `remote.commands` 都必须在列：消息动作条的撤销按钮读
+  // ctx.remote.commands 执行 /undo，未声明 inject 时 cordis 代理会抛，整个插件
+  // apply 失败（线上复现过 Failed to load plugins）。
+  assert.deepEqual(client.inject, ['slots', 'sessions', 'locale', 'remote', 'remote.commands'])
   assert.equal(typeof client.parseUndoOutput, 'function')
   assert.equal(typeof client.resolvePlanStatus, 'function')
   assert.equal(typeof client.resolveOwnerSessionId, 'function')

@@ -26,14 +26,23 @@ export const COMMAND_VIEW_KEY = 'undo'
 /** effect 标签（诊断/日志）。 */
 export const COMMAND_VIEW_EFFECT = 'turnrewind command view'
 
-/** 完成 turn 的尾部槽位（DSH 会话视图对每个完成的 turn 渲染，props 带 turn 号）。 */
-export const TURN_UNDO_SLOT = 'conversation.chat.turnTail'
+/**
+ * 撤销按钮所在的槽位：助手消息动作条（每个完成的 turn 渲染一次）。
+ *
+ * **不能用 `conversation.chat.turnTail`**：那是 chain（选择器路由）槽位，框架
+ * 每处只渲染**第一个** select 命中的注册（见 ui-renderer 的 chain 分支 `break`），
+ * 而核心 `@deepseek-ai/dsh-client-ui-deliverables` 已经占了它——只要该 turn 产出过
+ * 文件，它的 select 就命中，我们的注册永远轮不到，而「产出过文件」恰恰是最需要
+ * 撤销的场景。`conversation.chat.assistant-actions` 是 list 槽位（追加、按 order
+ * 排序、与 copy/branch/点赞同排），才是「给一条消息加动作」的正规座位。
+ */
+export const TURN_UNDO_SLOT = 'conversation.chat.assistant-actions'
 
-/** turn 尾部按钮在槽内的注册 id。 */
-export const TURN_UNDO_ID = 'turnrewind-turn-undo'
+/** 撤销按钮在动作条槽内的注册 id（list 槽位内唯一）。 */
+export const TURN_UNDO_ID = 'turnrewind-undo'
 
-/** keyed slot 的 key（同一 slot 的多个组件按 key 区分）。 */
-export const TURN_UNDO_KEY = 'turn-undo'
+/** 动作条内的排列顺序（核心 copy/branch 与反馈按钮在前）。 */
+export const TURN_UNDO_ORDER = 20
 
 /** effect 标签（诊断/日志）。 */
 export const TURN_UNDO_EFFECT = 'turnrewind turn action'
