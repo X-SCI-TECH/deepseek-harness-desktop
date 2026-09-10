@@ -10,10 +10,10 @@
  *     在私有仓与私有 index 上，用户仓库的 HEAD / 分支 / index / stash 不受影响。
  */
 
+import type { GitResult, SnapshotStore } from '../types'
 import { execFile } from 'node:child_process'
 import process from 'node:process'
 import { GIT_TIMEOUT_MS } from '../constants'
-import type { GitResult, SnapshotStore } from '../types'
 
 /** 单次 git 调用的可选项。 */
 export interface GitRunOptions {

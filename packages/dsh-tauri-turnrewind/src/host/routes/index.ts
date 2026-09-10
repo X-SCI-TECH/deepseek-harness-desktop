@@ -2,24 +2,30 @@
  * host/routes/index.ts — turnrewind HTTP 路由（客户端 UI 唯一的数据面）。
  *
  *   GET  /api/turnrewind/summary?sessionId=<id>  读本会话的 turn 变更记录
+ *   GET  /api/turnrewind/live?sessionId=<id>     读运行中实时读数（客户端提示条）
  *   POST /api/turnrewind/undo                    撤销某个 turn 的文件改动
  *
- * 两条路由都经 dsh-tauri 的 routeHandler（方法严格限制、mutate 仅回环 + JSON 校验）；
+ * 三条路由都经 dsh-tauri 的 routeHandler（方法严格限制、mutate 仅回环 + JSON 校验）；
  * 连接信任边界用 `ctx.get('connection')` 可选获取——服务缺席时优雅降级为
  * routeHandler 自身的回环校验，不因未注入而让插件 fiber 卡在 PENDING（见方案 2.4-B3/B5）。
+ * live 是宿主定时刷新的缓存值（读内存，不起 git 子进程）。
  */
 
-import type { HostContext, JsonBody, SummaryPayload } from '../types'
+import type { HostContext, JsonBody, LiveSnapshot, SummaryPayload } from '../types'
 import { routeHandler, withConnectionAuth } from 'dsh-tauri'
-import { MAX_SUMMARY_FILES, REASON_GIT_REQUIRED } from '../constants'
 import { TURNREWIND_API_PREFIX, TURNREWIND_PLUGIN_NAME } from '../../shared/constants'
+import { MAX_SUMMARY_FILES, REASON_GIT_REQUIRED } from '../constants'
 import { currentDshHome, readLedger } from '../service/ledger'
 import { undoTurn } from '../service/undo'
 import { findSession, probeWorkspace, sessionCwdOf } from '../service/workspace'
 
+/** 运行中实时读数的读取面（由 capture 编排器提供；未接线时返回 inactive）。 */
+export type LiveStateReader = (sessionId: string) => LiveSnapshot
+
 /** 构建路由列表。 */
-export function buildRoutes(ctx: HostContext, options: { dshHome?: string } = {}): any[] {
+export function buildRoutes(ctx: HostContext, options: { dshHome?: string, live?: LiveStateReader } = {}): any[] {
   const dshHome = options.dshHome ?? currentDshHome()
+  const live = options.live
   // 连接信任边界是可选能力：服务缺席时 withConnectionAuth 原样放行，
   // 由 routeHandler 自己的回环校验兜底（绝不因未注入而卡住 fiber）。
   const connection = typeof ctx?.get === 'function' ? ctx.get('connection') : undefined
@@ -79,8 +85,20 @@ export function buildRoutes(ctx: HostContext, options: { dshHome?: string } = {}
     return [outcome.code, { error: outcome.error, conflicts: outcome.conflicts ?? [] }]
   }, { mutate: true })
 
+  const liveHandler = routeHandler(async (_body: JsonBody, req: any): Promise<[number, unknown]> => {
+    const url = new URL(req?.url ?? '/', 'http://localhost')
+    const sessionId = String(url.searchParams.get('sessionId') ?? '')
+    if (sessionId.length === 0)
+      return [400, { error: '缺少 sessionId' }]
+    // 只读宿主内存里的读数：客户端轮询频率与 git 调用频率解耦。
+    const snapshot: LiveSnapshot = live?.(sessionId)
+      ?? { active: false, turn: null, fileCount: 0, insertions: 0, deletions: 0 }
+    return [200, snapshot]
+  })
+
   return [
     { kind: 'exact', path: `${TURNREWIND_API_PREFIX}/summary`, handler: withConnectionAuth(connection, summaryHandler, TURNREWIND_PLUGIN_NAME) },
+    { kind: 'exact', path: `${TURNREWIND_API_PREFIX}/live`, handler: withConnectionAuth(connection, liveHandler, TURNREWIND_PLUGIN_NAME) },
     { kind: 'exact', path: `${TURNREWIND_API_PREFIX}/undo`, handler: withConnectionAuth(connection, undoHandler, TURNREWIND_PLUGIN_NAME) },
   ]
 }

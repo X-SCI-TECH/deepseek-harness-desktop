@@ -74,9 +74,9 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
     })
   })
 
-  // 4) HTTP 路由（客户端 UI 经此读摘要 / 执行撤销）。
+  // 4) HTTP 路由（客户端 UI 经此读摘要 / 运行中读数 / 执行撤销）。
   ctx.effect(() => {
-    const disposers = buildRoutes(ctx, { dshHome }).map(route => ctx.webServer.register(route))
+    const disposers = buildRoutes(ctx, { dshHome, live: capture.liveState }).map(route => ctx.webServer.register(route))
     return () => {
       for (const dispose of disposers)
         dispose()

@@ -14,8 +14,8 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import process from 'node:process'
-import { join } from 'pathe'
 import { writeAtomic } from 'dsh-tauri'
+import { join } from 'pathe'
 import { LEDGER_VERSION, MAX_TURNS_PER_SESSION, SNAPSHOT_FEATURE_DIR } from '../constants'
 
 /** 账本目录（DSH_HOME 可被环境变量覆盖，与 dsh-tauri 的存储口径一致）。 */
@@ -25,7 +25,7 @@ export function ledgerDir(dshHome: string): string {
 
 /** 会话账本文件路径；会话 id 做文件名安全化并附短哈希防撞。 */
 export function ledgerPath(dshHome: string, sessionId: string): string {
-  const sanitized = sessionId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 96) || 'session'
+  const sanitized = sessionId.replace(/[^\w.-]/g, '_').slice(0, 96) || 'session'
   const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, 8)
   return join(ledgerDir(dshHome), `${sanitized}-${digest}.json`)
 }
@@ -77,8 +77,9 @@ const sessionQueues = new Map<string, Promise<unknown>>()
 
 /**
  * 在会话级串行区内执行 load-modify-save。
+ * @param dshHome - 宿主数据根目录。
  * @param sessionId - 会话 id（队列键）。
- * @param task - 收到当前账本，返回要落盘的账本。
+ * @param task - 收到当前账本，返回要落盘的账本（null 表示无需写入）。
  * @returns 落盘时被淘汰的 turn 记录（调用方据此删除快照 refs）。
  */
 export async function mutateLedger(

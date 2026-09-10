@@ -5,7 +5,7 @@
  * 避免「预览说超限、执行却照做」这类双份常量漂移。
  */
 
-import { TURNREWIND_PLUGIN_NAME } from '../../shared/constants'
+import { TURNREWIND_PLUGIN_NAME, TURNREWIND_REASON_GIT_REQUIRED } from '../../shared/constants'
 
 export { TURNREWIND_API_PREFIX, TURNREWIND_PLUGIN_NAME } from '../../shared/constants'
 
@@ -36,8 +36,14 @@ export const GIT_TIMEOUT_MS = 5 * 60 * 1000
 /** 摘要路由返回给客户端的文件明细上限（更大的会话只给汇总与截断标记）。 */
 export const MAX_SUMMARY_FILES = 200
 
+/**
+ * 运行中实时读数的宿主端刷新间隔。宿主定时刷新、客户端只读缓存值：
+ * 客户端轮询频率与 git 调用频率解耦，turn 结束后立刻停表。
+ */
+export const LIVE_POLL_INTERVAL_MS = 1500
+
 /** 会话 cwd 不在 Git worktree 内：不做快照，撤销入口提示需要 Git 仓库。 */
-export const REASON_GIT_REQUIRED = 'TURNREWIND_GIT_REQUIRED'
+export const REASON_GIT_REQUIRED = TURNREWIND_REASON_GIT_REQUIRED
 
 /** 会话 cwd 是家目录/家目录祖先/盘根等系统目录：拒绝快照。 */
 export const REASON_UNSAFE_WORKSPACE = 'TURNREWIND_UNSAFE_WORKSPACE'

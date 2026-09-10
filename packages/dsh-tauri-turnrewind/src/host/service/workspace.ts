@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import process from 'node:process'
-import { parse, resolve } from 'pathe'
+import { resolve } from 'pathe'
 import { REASON_GIT_REQUIRED, REASON_UNSAFE_WORKSPACE } from '../constants'
 import { gitInRepo } from './git'
 
@@ -47,20 +47,27 @@ export function workspaceHash(target: string): string {
   return createHash('sha256').update(workspaceKey(target)).digest('hex').slice(0, 24)
 }
 
-/** 是否为系统级敏感目录（家目录本身、家目录祖先、盘根）。 */
+/** 是否为系统级敏感目录（家目录本身、家目录祖先、盘根、UNC 共享根）。 */
 export function isSystemSensitivePath(target: string): boolean {
-  const canonical = workspaceKey(target)
+  const raw = target.trim()
+  if (raw.length === 0)
+    return true
+  // 盘根与 UNC 根必须按**原始形态**判定：pathe 会把 `C:\` 解析成 `/C:`、
+  // 把 `\\server\share` 压成 `/server/share`，解析之后再判形态就不可靠了。
+  if (/^[a-z]:[\\/]*$/i.test(raw))
+    return true
+  if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/]*$/.test(raw))
+    return true
+  const canonical = workspaceKey(raw)
   if (canonical.length === 0)
+    return true
+  if (/^\/?[a-z]:\/?$/i.test(canonical) || canonical === '/')
     return true
   const home = workspaceKey(homedir())
   if (canonical === home)
     return true
   const homePrefix = canonical.endsWith('/') ? canonical : `${canonical}/`
-  if (home.startsWith(homePrefix))
-    return true
-  const root = parse(canonical).root
-  const trimmedRoot = root.endsWith('/') ? root.slice(0, -1) : root
-  return canonical === root || canonical === trimmedRoot
+  return home.startsWith(homePrefix)
 }
 
 /**

@@ -3,8 +3,12 @@ export type { IconComponent, IconProps, SharedIconProps } from './icon'
 export {
   ArrowDownToLine,
   ArrowRight,
+  ArrowRotateLeft,
   ArrowRotateRight,
+  ArrowUpRight,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   CirclePause,
   CirclePlay,
   CircleTree,
@@ -19,6 +23,7 @@ export {
   PlugConnection,
   Plus,
   Puzzle,
+  SquarePlus,
   TrashBin,
 } from './icons'
 export { MenuSelect } from './menu-select'

@@ -12,16 +12,16 @@
  */
 
 import type { GitResult, SnapshotStore, TurnFileChange } from '../types'
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { dirname, isAbsolute, join, relative, resolve } from 'pathe'
 import {
   MAX_FILES_PER_SNAPSHOT,
   MAX_SNAPSHOT_BYTES,
   REASON_SNAPSHOT_FAILED,
-  REASON_TOO_MANY_FILES,
   REASON_SNAPSHOT_TOO_LARGE,
+  REASON_TOO_MANY_FILES,
   SNAPSHOT_FEATURE_DIR,
   SNAPSHOT_REF_PREFIX,
 } from '../constants'
@@ -44,6 +44,16 @@ const CHECKOUT_CHUNK = 200
 
 export type CaptureResult = { ok: true, commit: string } | { ok: false, reason: string }
 
+/** 运行中实时读数的形态（供客户端「运行中」提示条渲染）。 */
+export interface LiveStats {
+  /** 当前已受影响的文件数。 */
+  fileCount: number
+  /** 累计新增行数（二进制不计）。 */
+  insertions: number
+  /** 累计删除行数（二进制不计）。 */
+  deletions: number
+}
+
 /** 快照仓根目录（DSH_HOME 下）。 */
 export function snapshotWorkspacesDir(dshHome: string): string {
   return join(dshHome, SNAPSHOT_FEATURE_DIR, 'workspaces')
@@ -59,7 +69,7 @@ export function snapshotStoreFor(dshHome: string, worktree: string): SnapshotSto
 
 /** 快照 ref 名；会话 id 先做文件系统/ref 安全化，再拼短哈希防撞。 */
 export function turnRef(sessionId: string, turn: number, phase: 'before' | 'after'): string {
-  const sanitized = sessionId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 64) || 'session'
+  const sanitized = sessionId.replace(/[^\w.-]/g, '_').slice(0, 64) || 'session'
   const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, 8)
   return `${SNAPSHOT_REF_PREFIX}/${sanitized}-${digest}/${turn}/${phase}`
 }
@@ -95,10 +105,17 @@ function repoExists(store: SnapshotStore): boolean {
 /** 首次使用时初始化私有快照仓，并把源仓库的换行/属性配置镜像进来。 */
 export async function ensureSnapshotRepo(store: SnapshotStore): Promise<GitResult> {
   if (!repoExists(store)) {
-    const init = await gitInRepo(dirname(store.gitDir), ['init', '--quiet', store.gitDir])
+    // 私有仓用 `--bare` 初始化：`git init <path>.git` 会在 `<path>.git` 里再套一层
+    // `.git`，而 `--git-dir` 需要目录本身就是 git dir。父目录必须先存在，否则
+    // execFile 以不存在的 cwd 启动会直接 ENOENT。
+    const parent = dirname(store.gitDir)
+    await mkdir(parent, { recursive: true })
+    const init = await gitInRepo(parent, ['init', '--bare', '--quiet', store.gitDir])
     if (!init.ok)
       return init
   }
+  // 让 git dir 与工作区配对：`--work-tree` 每次显式传入，这里落一份持久配置作兜底。
+  await gitInSnapshot(store, ['config', 'core.bare', 'false'])
   const configured = await gitInSnapshot(store, ['config', 'core.worktree', store.worktree])
   if (!configured.ok)
     return configured
@@ -256,6 +273,44 @@ export async function diffTurnChanges(store: SnapshotStore, beforeCommit: string
   }
   changes.sort((left, right) => left.path.localeCompare(right.path))
   return { ok: true, changes }
+}
+
+/**
+ * 运行中实时统计：刷新私有 index 后与 before 快照比较当前工作区。
+ *
+ * 必须先 `add --all` 再 diff：`git diff <commit>` 只认提交与 index 里出现过的路径，
+ * 本轮**新建**的文件在 index 里还不存在（捕获只在 before/after 两处写 index），
+ * 不刷新就会漏掉它们——而「刚创建文件」正是运行中提示最需要反馈的场景。
+ * 刷新只动私有 index，用户仓库不受影响。
+ *
+ * @param store - 私有快照仓。
+ * @param beforeCommit - 本轮 before 快照的 commit。
+ * @returns 受影响文件数与行数汇总；失败返回原因（调用方保持上一次读数）。
+ */
+export async function liveDiff(store: SnapshotStore, beforeCommit: string): Promise<{ ok: true, stats: LiveStats } | { ok: false, reason: string }> {
+  const added = await gitInSnapshot(store, ['add', '--all', '--', '.'])
+  if (!added.ok)
+    return { ok: false, reason: added.error }
+  const numstat = await gitInSnapshot(store, ['diff', '--numstat', '-z', '--no-renames', beforeCommit])
+  if (!numstat.ok)
+    return { ok: false, reason: numstat.error }
+  let fileCount = 0
+  let insertions = 0
+  let deletions = 0
+  for (const record of splitNul(numstat.out)) {
+    const firstTab = record.indexOf('\t')
+    const secondTab = record.indexOf('\t', firstTab + 1)
+    if (firstTab < 0 || secondTab < 0)
+      continue
+    fileCount += 1
+    const rawInsertions = record.slice(0, firstTab)
+    const rawDeletions = record.slice(firstTab + 1, secondTab)
+    if (rawInsertions === '-' || rawDeletions === '-')
+      continue
+    insertions += Number(rawInsertions)
+    deletions += Number(rawDeletions)
+  }
+  return { ok: true, stats: { fileCount, insertions, deletions } }
 }
 
 /**

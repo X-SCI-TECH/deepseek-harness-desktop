@@ -12,13 +12,14 @@
  * {@link enqueueByWorkspace} 串行（不同工作区互不影响）。
  */
 
-import type { SnapshotStore, TurnFileChange, TurnRecord } from '../types'
+import type { LiveSnapshot, SnapshotStore, TurnFileChange, TurnRecord } from '../types'
 import {
+  LIVE_POLL_INTERVAL_MS,
   REASON_SNAPSHOT_FAILED,
   REASON_UNSAFE_WORKSPACE,
 } from '../constants'
 import { recordTurn, recordWorkspaceState } from './ledger'
-import { captureSnapshot, diffTurnChanges, snapshotStoreFor, turnRef } from './snapshot'
+import { captureSnapshot, diffTurnChanges, liveDiff, snapshotStoreFor, turnRef } from './snapshot'
 import { probeWorkspace } from './workspace'
 
 /** 一个正在进行中的 turn 的捕获状态。 */
@@ -30,6 +31,11 @@ interface ActiveTurn {
   beforeCommit: string | null
   /** 本 turn 不可撤销的原因（资格拒绝/快照失败）。 */
   skippedReason: string | null
+  /** 运行中实时读数（before 快照成功后开始轮询更新；`active` 由读取面补上）。 */
+  live: Omit<LiveSnapshot, 'active'> | null
+  liveTimer: ReturnType<typeof setInterval> | null
+  /** 上一次实时刷新是否仍在飞（防止慢仓库堆积轮询）。 */
+  liveBusy: boolean
 }
 
 /** 日志面（宿主 logger 的最小契约；缺失时静默）。 */
@@ -45,7 +51,9 @@ export interface TurnCapture {
   settleTurn: (sessionId: string, turn: number) => Promise<void>
   /** 会话空闲兜底：结算该会话所有未落定的 turn。 */
   settleIdle: (sessionId: string) => Promise<void>
-  /** 卸载：丢弃内存态（在飞任务由调用方等待）。 */
+  /** 运行中实时读数（客户端「运行中」提示条轮询）。 */
+  liveState: (sessionId: string) => LiveSnapshot
+  /** 卸载：清定时器并丢弃内存态（在飞任务由调用方等待）。 */
   dispose: () => void
 }
 
@@ -96,7 +104,17 @@ export function createTurnCapture(
         isGit: probe.reason === REASON_UNSAFE_WORKSPACE,
         unavailableReason: probe.reason,
       }).catch(() => undefined)
-      active.set(key, { sessionId, turn, workspaceRoot: null, store: null, beforeCommit: null, skippedReason: probe.reason })
+      active.set(key, {
+        sessionId,
+        turn,
+        workspaceRoot: null,
+        store: null,
+        beforeCommit: null,
+        skippedReason: probe.reason,
+        live: null,
+        liveTimer: null,
+        liveBusy: false,
+      })
       return
     }
     const store = snapshotStoreFor(dshHome, probe.root)
@@ -109,7 +127,17 @@ export function createTurnCapture(
         isGit: true,
         unavailableReason: null,
       }).catch(() => undefined)
-      active.set(key, { sessionId, turn, workspaceRoot: probe.root, store, beforeCommit: null, skippedReason: result.reason })
+      active.set(key, {
+        sessionId,
+        turn,
+        workspaceRoot: probe.root,
+        store,
+        beforeCommit: null,
+        skippedReason: result.reason,
+        live: null,
+        liveTimer: null,
+        liveBusy: false,
+      })
       return
     }
     await recordWorkspaceState(dshHome, sessionId, {
@@ -117,7 +145,74 @@ export function createTurnCapture(
       isGit: true,
       unavailableReason: null,
     }).catch(() => undefined)
-    active.set(key, { sessionId, turn, workspaceRoot: probe.root, store, beforeCommit: result.commit, skippedReason: null })
+    const entry: ActiveTurn = {
+      sessionId,
+      turn,
+      workspaceRoot: probe.root,
+      store,
+      beforeCommit: result.commit,
+      skippedReason: null,
+      live: { turn, fileCount: 0, insertions: 0, deletions: 0 },
+      liveTimer: null,
+      liveBusy: false,
+    }
+    active.set(key, entry)
+    startLivePolling(entry)
+  }
+
+  /**
+   * 运行中轮询：定时把「当前工作区 vs before 快照」的读数刷进 entry.live。
+   * 上一次刷新还在飞就跳过本次（慢仓库/大仓库时不堆积 git 子进程）；
+   * 定时器 unref，不阻止宿主进程退出。
+   */
+  function startLivePolling(entry: ActiveTurn): void {
+    if (entry.liveTimer !== null || entry.store === null || entry.beforeCommit === null)
+      return
+    const timer = setInterval(() => {
+      void refreshLive(entry)
+    }, LIVE_POLL_INTERVAL_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    entry.liveTimer = timer
+  }
+
+  async function refreshLive(entry: ActiveTurn): Promise<void> {
+    if (disposed || entry.liveBusy || entry.store === null || entry.beforeCommit === null)
+      return
+    const store = entry.store
+    const beforeCommit = entry.beforeCommit
+    const workspaceRoot = entry.workspaceRoot
+    if (workspaceRoot === null)
+      return
+    entry.liveBusy = true
+    try {
+      const result = await enqueueByWorkspace(workspaceRoot, () => liveDiff(store, beforeCommit))
+      if (result.ok)
+        entry.live = { turn: entry.turn, ...result.stats }
+    }
+    catch (error) {
+      warn(`dsh-tauri-turnrewind: live diff failed: ${String(error)}`)
+    }
+    finally {
+      entry.liveBusy = false
+    }
+  }
+
+  function stopLivePolling(entry: ActiveTurn): void {
+    if (entry.liveTimer !== null) {
+      clearInterval(entry.liveTimer)
+      entry.liveTimer = null
+    }
+    entry.live = null
+  }
+
+  /** 运行中实时读数；没有正在进行的 turn 时返回 active: false。 */
+  function liveState(sessionId: string): LiveSnapshot {
+    for (const entry of active.values()) {
+      if (entry.sessionId !== sessionId || entry.live === null)
+        continue
+      return { active: true, ...entry.live }
+    }
+    return { active: false, turn: null, fileCount: 0, insertions: 0, deletions: 0 }
   }
 
   async function settleTurn(sessionId: string, turn: number): Promise<void> {
@@ -126,6 +221,8 @@ export function createTurnCapture(
     if (entry === undefined)
       return
     active.delete(key)
+    // 结算即结束运行中提示：先停轮询，再捕 after 快照（读数是过程态，不该跨 turn 残留）。
+    stopLivePolling(entry)
     if (entry.workspaceRoot === null || entry.store === null)
       return
     if (entry.beforeCommit === null) {
@@ -162,8 +259,12 @@ export function createTurnCapture(
     beginTurn,
     settleTurn,
     settleIdle,
+    liveState,
     dispose(): void {
       disposed = true
+      // 卸载必须清掉每个 active turn 的轮询定时器，否则插件停用后仍会持续拉起 git 子进程。
+      for (const entry of active.values())
+        stopLivePolling(entry)
       active.clear()
     },
   }

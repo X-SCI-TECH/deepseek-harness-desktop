@@ -1,5 +1,8 @@
 # DSH TurnRewind 会话流程设计
 
+> 实施方案与已确认决策：见 [`docs/plugins/11.优化计划.turnrewind实现.md`](../plugins/11.优化计划.turnrewind实现.md)。
+> 本文档只保留交互稿；卡片挂载方式已定为「方式一 · 接管 `conversation.chat.turnTail`」。
+
 ## 运行中文件变更记录
 
 ```text

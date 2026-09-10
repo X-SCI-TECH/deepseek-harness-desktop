@@ -10,8 +10,8 @@
     "id": "dsh-tauri-turnrewind",
     "spec": "dsh-tauri-turnrewind",
     "name": "DSH Turn Rewind",
-    "description": "Turn-level workspace undo for the desktop shell: private Git snapshots per turn, two-stage /undo with conflict protection, in-app recovery panel — the desktop build bundles and activates it out of the box.",
-    "repoUrl": "https://github.com/yingtianlan/deepseek-harness-desktop-undo/tree/dsh/turnrewind-ts/packages/dsh-tauri-turnrewind-ts"
+    "description": "Turn-level workspace undo for the desktop shell: a private Git snapshot per agent turn, a change card at each finished turn (changed files with +N -M), and one-click revert of that turn's file changes with conflict protection.",
+    "repoUrl": "https://github.com/dsh-tauri-desk/deepseek-harness-desktop/tree/main/packages/dsh-tauri-turnrewind"
   },
   {
     "id": "dsh-tauri-ui",

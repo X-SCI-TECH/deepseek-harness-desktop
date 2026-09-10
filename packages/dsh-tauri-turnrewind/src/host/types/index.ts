@@ -64,6 +64,17 @@ export interface SessionLedger {
   turns: TurnRecord[]
 }
 
+/** 运行中实时读数的线协议形态（客户端「运行中」提示条）。 */
+export interface LiveSnapshot {
+  /** 是否有正在进行的 turn（false 时其余字段为占位 0）。 */
+  active: boolean
+  /** 正在进行的 turn 号；无活动 turn 时为 null。 */
+  turn: number | null
+  fileCount: number
+  insertions: number
+  deletions: number
+}
+
 /** 撤销前的冲突明细。 */
 export interface UndoConflict {
   path: string
