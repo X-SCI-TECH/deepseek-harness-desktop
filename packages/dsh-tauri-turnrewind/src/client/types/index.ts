@@ -2,6 +2,10 @@
  * client/types/index.ts — 客户端共享类型（宿主协议投影 + 卡片状态 + 组件 props）。
  */
 
+import type { FileOpener } from '../utils/open-file'
+
+export type { FileOpener } from '../utils/open-file'
+
 /** 单文件变更状态：本 turn 新增 / 修改 / 删除。 */
 export type TurnFileStatus = 'A' | 'M' | 'D'
 
@@ -94,8 +98,13 @@ export type TurnCardState
 export interface TurnTailOwnerProps {
   turn?: { turn?: number } | undefined
   seq?: number | undefined
-  /** 框架提供的文件打开入口（相对路径按会话 cwd 解析）。 */
-  openFile?: ((path: string) => void) | undefined
+  /**
+   * 框架提供的文件打开入口（相对路径按会话 cwd 解析）。**两个内核都派发它，但语义不同**：
+   * `0.1.5-rc.1` 在应用内右侧边栏打开预览页签，`0.1.2-rc.1` 交给宿主/系统打开该路径。
+   * 因此本插件只在**探测到右侧边栏能力**时才调用（见 client/capabilities 与
+   * client/utils/open-file.ts），旧内核上保持静默。
+   */
+  openFile?: FileOpener | undefined
 }
 
 /** 卡片组件收到的完整 props：owner 份额 + chain `matched` + 注册 inject 份额。 */
@@ -141,3 +150,4 @@ export type LocaleKey
     | 'unsafePathReason'
     | 'skippedOversized'
     | 'skippedNestedRepos'
+    | 'openFile'

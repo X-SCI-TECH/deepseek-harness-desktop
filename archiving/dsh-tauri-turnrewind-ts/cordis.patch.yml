@@ -1,5 +1,0 @@
-# Mount row for dsh-tauri-turnrewind: installs the /undo command, the undo
-# card, and the in-app recovery panel into a DSH profile.
-- insert:
-    - id: turnrewind
-      name: dsh-tauri-turnrewind

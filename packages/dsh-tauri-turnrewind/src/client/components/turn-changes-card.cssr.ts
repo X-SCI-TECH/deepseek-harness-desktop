@@ -85,6 +85,29 @@ export default b('turnrewind', {
     ],
   */
   ),
+  /*
+    「打开文件」已开放：单文件标题会被渲染成 `<button class="__title--link">`
+    （多文件清单行同理，见 `e('file')`）。这里只做**按钮基座重置**，使按钮的视觉与
+    多文件的纯文本标题**完全一致**——刻意**不加任何 hover 规则**（需求：只开放功能、
+    不加 hover 样式）。恢复 hover 换行时的写法见 `e('card')` 里的 TODO(view-changes-hover)。
+
+    注意：字号/字重/行高**故意不写**。`__title`（同一个元素上）已经给了 13px/600/18px，
+    这里再写 `font-size: inherit` 之类反而会因为规则在后面而**覆盖掉**它们，
+    按钮于是退回卡片根的 12px/常规字重——单文件与多文件标题就会看起来不一样。
+    只需要 `font-family: inherit`：按钮不会继承字体族（其余排印属性由 `__title` 决定）。
+  */
+  e('title--link', {
+    display: 'block',
+    minWidth: '0',
+    maxWidth: '100%',
+    padding: '0',
+    border: 'none',
+    background: 'transparent',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+    color: 'inherit',
+    cursor: 'pointer',
+  }),
   e('sub', {
     display: 'flex',
     alignItems: 'center',
@@ -157,6 +180,12 @@ export default b('turnrewind', {
   e('files', {
     borderTop: '1px solid var(--dsw-alias-border-weak, rgba(127,127,127,0.18))',
   }),
+  /*
+    清单行同时服务两种渲染：具备打开能力时是 `<button>`，否则是 `<div>`。
+    下面这几条是按钮基座重置（对 `<div>` 无副作用），视觉与原来的行完全一致；
+    **刻意不加 hover 规则**——保留的 `&:hover` 背景高亮是上一轮视觉对齐时就有的，
+    本次开放点击没有新增任何 hover 样式。
+  */
   e('file', {
     boxSizing: 'border-box',
     display: 'flex',
@@ -164,18 +193,20 @@ export default b('turnrewind', {
     gap: '10px',
     width: '100%',
     padding: '7px 10px',
+    border: 'none',
+    background: 'transparent',
+    fontFamily: 'inherit',
     fontSize: '13px',
     lineHeight: '18px',
+    textAlign: 'left',
+    color: 'inherit',
   }, [
     c('&:hover', { background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.06))' }),
     // 本 turn 删除的文件整行弱化：它们已不在工作区里。
     m('deleted', { color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))' }),
+    // 只有可点的那一支才带 `--open`（按钮指针样式；不可点的那支渲染成 <div>）。
+    m('open', { cursor: 'pointer' }),
   ]),
-  /*
-    TODO(open-file): 清单行改为 <button> 打开文件时，在 `e('file', …)` 里补回按钮基座重置：
-    `border: 'none'`、`background: 'transparent'`、`font: 'inherit'`、
-    `textAlign: 'left'`、`color: 'inherit'`、`cursor: 'pointer'`。
-  */
   e('file-path', {
     flex: '1',
     minWidth: 0,

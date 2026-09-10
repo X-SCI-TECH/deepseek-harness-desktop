@@ -30,10 +30,31 @@ describe('turn-changes-card.cssr（视觉对齐官方 deliverables 行）', () =
   })
 
   it('hover「查看更改」当前整体停用：无 hover 换行规则，提示默认不占位', () => {
-    // 需求：hover 效果与打开文件暂时全部停用，只显示 +xx -x（恢复见 CSSR 内 TODO 注释）。
+    // 需求：hover 效果暂时停用，只显示 +xx -x（恢复见 CSSR 内 TODO 注释）。
     expect(css).not.toMatch(/\.dshp-turnrewind__card--single:hover/)
     expect(css).not.toMatch(/\.dshp-turnrewind__card:hover/)
     expect(css).toMatch(/\.dshp-turnrewind__hint\s*\{[^}]*display: none/)
+  })
+
+  it('「打开文件」开放后只加按钮基座，不加任何 hover 样式', () => {
+    // 单文件标题变成按钮：基座重置把按钮视觉拉回纯文本。
+    expect(css).toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*border: none/)
+    expect(css).toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*background: transparent/)
+    expect(css).toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*font-family: inherit/)
+    // 清单行的 `--open` 只负责指针样式（可点那一支），且**没有** hover 规则。
+    expect(css).toMatch(/\.dshp-turnrewind__file--open\s*\{[^}]*cursor: pointer/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__title--link:hover/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__file--open:hover/)
+  })
+
+  it('单文件标题按钮的排印与多文件标题一致（基座不得覆盖 __title 的字号/字重/行高）', () => {
+    // 真 bug 回归：`--link` 规则排在 `__title` 之后，若这里写 font-size/font-weight/
+    // line-height: inherit，会把标题退回卡片根的 12px + 常规字重，单文件与多文件就不一致了。
+    expect(css).toMatch(/\.dshp-turnrewind__title\s*\{[^}]*font-size: 13px/)
+    expect(css).toMatch(/\.dshp-turnrewind__title\s*\{[^}]*font-weight: 600/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*font-size/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*font-weight/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__title--link\s*\{[^}]*line-height/)
   })
 
   it('文件行：hover 高亮；本轮删除的文件整行弱化', () => {

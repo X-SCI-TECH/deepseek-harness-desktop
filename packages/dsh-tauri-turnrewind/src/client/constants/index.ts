@@ -46,6 +46,15 @@ export const TURNREWIND_COUNTS_STYLE_ID = `${TURNREWIND_PLUGIN_NAME}/ChangeCount
 export const TURNREWIND_EFFECT_TURN_TAIL = `${TURNREWIND_PLUGIN_NAME}: turn tail slot`
 export const TURNREWIND_EFFECT_RUNNING_CHIP = `${TURNREWIND_PLUGIN_NAME}: running chip slot`
 export const TURNREWIND_EFFECT_LOCALE = `${TURNREWIND_PLUGIN_NAME}: locale`
+export const TURNREWIND_EFFECT_CAPABILITIES = `${TURNREWIND_PLUGIN_NAME}: capabilities`
+
+/**
+ * 「应用内右侧边栏」服务名（新内核由 `dsh-client-ui-sidebar-right` 发布）。
+ *
+ * 只做**运行时探测**（`ctx.reflect.get`），绝不写进 `dsh.client.inject`：
+ * 旧内核没有这个服务，声明式依赖会让插件在那边的加载直接失败。
+ */
+export const TURNREWIND_SIDEBAR_RIGHT_SERVICE = 'sidebarRight'
 
 /** 卡片默认展示的文件行数（其余折叠到「再显示 N 个文件」）。 */
 export const TURNREWIND_VISIBLE_FILE_ROWS = 3

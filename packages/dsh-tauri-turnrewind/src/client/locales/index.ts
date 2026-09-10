@@ -45,6 +45,7 @@ const DICT_ZH = {
   unsafePathReason: '目标路径上有符号链接或非空目录，出于安全考虑拒绝撤销。',
   skippedOversized: '{count} 个超大文件未纳入快照，撤销不会改动它们',
   skippedNestedRepos: '{count} 个嵌套仓库已跳过，撤销不会改动其内部文件',
+  openFile: '打开 {name}',
 } as const satisfies Record<LocaleKey, string>
 
 /** en 字典，与 zh 键集完全一致（locale 运行时强制双语平衡）。 */
@@ -75,6 +76,7 @@ const DICT_EN: Record<LocaleKey, string> = {
   unsafePathReason: 'A symbolic link or a non-empty directory sits on the target path, so the undo was refused for safety.',
   skippedOversized: '{count} oversized file(s) were not captured — undoing will not touch them',
   skippedNestedRepos: '{count} nested repository/repositories skipped — undoing will not touch their contents',
+  openFile: 'Open {name}',
 }
 
 /** 活跃语言 id（module 级缓存，apply 时初始化并由订阅推进）。 */
