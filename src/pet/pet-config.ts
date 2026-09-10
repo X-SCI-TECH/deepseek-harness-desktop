@@ -254,3 +254,41 @@ export function fallbackPresetName(
   }
   return null
 }
+
+/**
+ * 动画播放目标：真正决定「播放哪个媒体、怎么播」的三要素。
+ * - src：解析后的动画资源 URL（不是动画名——切换宠物时同名动画的 URL 不同，必须重载）；
+ * - once：一次性/循环语义（决定视频 loop 与 ended 回落）；
+ * - seq：显式重播序号（点击回应等 adHoc 每触发一次就递增，对应 dsh-pet 的 seq 重放）。
+ *
+ * 会话档位（thinking/working/result/…）刻意【不在】目标里：档位只是解析目标的输入，
+ * 不是重播依据。
+ */
+export interface PetAnimationTarget {
+  once: boolean
+  seq: number
+  src: string
+}
+
+/**
+ * 是否需要重载视频来切换动画（纯函数，可单测）。
+ *
+ * 【为什么存在】会话档位反复下发时（同一档位重复到达、或多会话交错让聚合档位在
+ * 解析结果相同的动画之间来回切），旧实现按 override.revision 递增重载同一个 webm
+ * 并从头播放——用户看到的现象是「气泡信息明明是同一个『整理结果中』，动画却一直
+ * 重新播放」。动画是否重播只由播放目标决定：
+ * - 目标资源变化（真换了动画 / 换了宠物）→ 重载；
+ * - once（循环语义）变化 → 重载，因为要重新设置 video.loop；
+ * - seq（点击回应等显式重播）变化 → 重载，用户重新点击就是要再看一次。
+ * 三者都不变 = 同一个动画目标，继续播放，不刷新。
+ */
+export function shouldReloadAnimation(
+  previous: PetAnimationTarget | null,
+  next: PetAnimationTarget,
+): boolean {
+  if (previous === null)
+    return true
+  return previous.src !== next.src
+    || previous.once !== next.once
+    || previous.seq !== next.seq
+}

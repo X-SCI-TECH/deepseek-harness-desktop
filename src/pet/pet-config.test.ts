@@ -1,4 +1,4 @@
-import type { PetCategory, PetWeights } from './pet-config'
+import type { PetAnimationTarget, PetCategory, PetWeights } from './pet-config'
 import { describe, expect, it, vi } from 'vitest'
 import {
   fallbackPresetName,
@@ -9,6 +9,7 @@ import {
   poolEntryToStatus,
   resolvePresetName,
   rollKind,
+  shouldReloadAnimation,
   spriteStatusFallback,
 } from './pet-config'
 
@@ -189,6 +190,49 @@ describe('resolvePresetName', () => {
   it('returns null when the pool entry is not backed by an asset', () => {
     expect(resolvePresetName('idle', { ...pools, idlePool: ['不存在.webm'] }, assets)).toBeNull()
     expect(resolvePresetName('idle', { ...pools, idlePool: [] }, assets)).toBeNull()
+  })
+})
+
+describe('shouldReloadAnimation', () => {
+  const thinking: PetAnimationTarget = {
+    once: false,
+    seq: 0,
+    src: 'dsh-pet://localhost/maid-deepseek-whale/webm/%E6%80%9D.webm',
+  }
+
+  it('首次下发（无已播放目标）必须加载', () => {
+    expect(shouldReloadAnimation(null, thinking)).toBe(true)
+  })
+
+  it('同一状态重复下发解析到同一目标时不重载（动画不重新播放）', () => {
+    // 会话档位「整理结果中」连续两次（或聚合档位来回切到同一解析结果）：
+    // 资源/循环语义/重播序号都不变 → 继续播放，不从头重播。
+    expect(shouldReloadAnimation(thinking, { ...thinking })).toBe(false)
+  })
+
+  it('目标动画变化时重载', () => {
+    const result: PetAnimationTarget = {
+      once: false,
+      seq: 0,
+      src: 'dsh-pet://localhost/maid-deepseek-whale/webm/%E6%B8%85.webm',
+    }
+    expect(shouldReloadAnimation(thinking, result)).toBe(true)
+  })
+
+  it('同名动画但资源 URL 不同（切换宠物）必须重载', () => {
+    const other: PetAnimationTarget = {
+      ...thinking,
+      src: 'dsh-pet://localhost/other-pet/webm/%E6%80%9D.webm',
+    }
+    expect(shouldReloadAnimation(thinking, other)).toBe(true)
+  })
+
+  it('循环语义变化必须重载', () => {
+    expect(shouldReloadAnimation(thinking, { ...thinking, once: true })).toBe(true)
+  })
+
+  it('显式重播序号变化必须重载（点击同一动画再看一次）', () => {
+    expect(shouldReloadAnimation(thinking, { ...thinking, seq: 1 })).toBe(true)
   })
 })
 

@@ -1,6 +1,6 @@
 import type { CSSProperties, Ref, RefObject, SyntheticEvent } from 'react'
 import type { PetHandle, PetStatus } from '../hooks/use-pet'
-import type { PetConfig } from '../pet-config'
+import type { PetAnimationTarget, PetConfig } from '../pet-config'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
@@ -15,6 +15,7 @@ import {
   poolEntryToStatus,
   resolvePresetName,
   rollKind,
+  shouldReloadAnimation,
   spriteStatusFallback,
 } from '../pet-config'
 
@@ -121,7 +122,10 @@ export function Pet(props: PetProps) {
   const videoBRef = useRef<HTMLVideoElement | null>(null)
   const frontIdxRef = useRef(0)
   const [frontIdx, setFrontIdx] = useState(0)
-  const pendingRef = useRef<null | { anim: string, gen: number, once: boolean, revision: number | undefined, seq: number }>(null)
+  /** 正在后台加载的切换代次（gen）；loadeddata 回调据此判断自己是否已被更新的切换取代。 */
+  const pendingRef = useRef<number | null>(null)
+  /** 已下发播放的动画目标（资源 URL + 循环语义 + 重播序号）；目标不变即不重载，见 shouldReloadAnimation。 */
+  const appliedRef = useRef<PetAnimationTarget | null>(null)
   const genRef = useRef(0)
   const spriteRef = useRef<HTMLDivElement | null>(null)
   const overrideRef = useRef(override)
@@ -177,8 +181,16 @@ export function Pet(props: PetProps) {
 
   useImperativeHandle(props.ref, () => ({
     change(options) {
-      if (isPetStatus(options.status))
-        setOverride({ loop: options.loop === true, revision: ++revisionRef.current, status: options.status })
+      if (!isPetStatus(options.status))
+        return
+      const current = overrideRef.current
+      // 同一档位重复下发（会话状态未变化，或多会话聚合档位来回切到同一档）不刷新 override：
+      // revision 递增会让视频层重新加载同一个动画并从头播放——用户报告「明明是同一条信息
+      // 『整理结果中』，下一条还是它，动画却一直重新播放」。override 已被 handleEnded 清空
+      // （终态一次性动画播完回落）时不做该去重，仍按新命令重新下发。
+      if (current !== null && current.status === options.status && current.loop === (options.loop === true))
+        return
+      setOverride({ loop: options.loop === true, revision: ++revisionRef.current, status: options.status })
     },
     clear() {
       setOverride(null)
@@ -328,18 +340,18 @@ export function Pet(props: PetProps) {
     const once = adHoc === null
       ? !(override?.loop ?? isLoopingAnimation(activity))
       : !isLoopingAnimation(activity)
-    const revision = override?.revision
     // adHoc seq：点击同一动画时 seq 递增强制重播（对应 dsh-pet 的 seq 重放）。
     const seq = adHoc?.seq ?? 0
-    const pending = pendingRef.current
-    // 防重：同一动画名 + 同一 revision + 同一 seq（未显式重播）不重复加载；
-    // override/点击每次触发 revision/seq 递增，同动画重播仍会重载并从头播放。
-    if (pending !== null && pending.anim === name && pending.once === once
-      && pending.revision === revision && pending.seq === seq) {
+    // 防重：同一播放目标（资源 URL + 循环语义 + 重播序号）不重复加载。
+    // override.revision 不是重播依据 —— 会话档位反复下发（同一档位重复到达，或多会话
+    // 交错让聚合档位在解析结果相同的动画之间来回切）时，按 revision 重载会让同一个
+    // webm 从头播放：用户看到「气泡信息没变，动画却一直重新播放」。只有点击回应等
+    // 显式重播（seq 递增）或目标真的变化时才重载。
+    const nextTarget: PetAnimationTarget = { once, seq, src: source }
+    if (!shouldReloadAnimation(appliedRef.current, nextTarget))
       return undefined
-    }
     const gen = ++genRef.current
-    pendingRef.current = { anim: name, gen, once, revision, seq }
+    pendingRef.current = gen
     const target = frontIdxRef.current === 0 ? videoBRef.current : videoARef.current
     target.src = source
     target.loop = !once
@@ -347,7 +359,7 @@ export function Pet(props: PetProps) {
     target.load()
     const onReady = () => {
       target.removeEventListener('loadeddata', onReady)
-      if (pendingRef.current?.gen !== gen)
+      if (pendingRef.current !== gen)
         return // 已被更新的切换取代
       const old = frontIdxRef.current === 0 ? videoARef.current : videoBRef.current
       if (old !== null && old !== target) {
@@ -359,6 +371,7 @@ export function Pet(props: PetProps) {
       // 而非渲染副作用；规则无法区分事件回调与 effect 同步阶段，忽略。
       // eslint-disable-next-line react/set-state-in-effect
       setFrontIdx(frontIdxRef.current)
+      appliedRef.current = nextTarget
       pendingRef.current = null
       void target.play().catch(() => setFailed(true))
     }
@@ -369,7 +382,7 @@ export function Pet(props: PetProps) {
       target.removeEventListener('loadeddata', onReady)
       // 若本次加载尚未完成（StrictMode 双挂载 / 依赖变化提前清理），清掉 pending，
       // 让下一次 effect 重新发起加载，避免「监听器已移除但 pending 仍在」的死锁。
-      if (pendingRef.current?.gen === gen)
+      if (pendingRef.current === gen)
         pendingRef.current = null
     }
   }, [activity, adHoc, assets, isPreset, override?.loop, override?.revision, pools])
@@ -484,6 +497,11 @@ export function Pet(props: PetProps) {
     const front = frontIdxRef.current === 0 ? videoARef.current : videoBRef.current
     if (source !== undefined && source !== front)
       return
+    // 一次性动画已播完：前台视频停在末帧，appliedRef 记录的「已下发目标」不再代表
+    // 正在播放的动画，必须作废——否则同一个一次性目标（终态档重复到达、回落又切回）
+    // 若在兜底动画加载完成前再次下发，会被 shouldReloadAnimation 判为「目标未变」而
+    // 跳过加载，前台就永远停在末帧。作废后同一目标也一定会重新加载播放。
+    appliedRef.current = null
     // 一次性动画播完：优先清 adHoc（点击回应 waving / 待机转向 turn），
     // 否则清非 loop 的 override 命令（bubble 会话动画播完回 idle）。
     if (adHocRef.current !== null) {
