@@ -497,6 +497,11 @@ export function Pet(props: PetProps) {
     const front = frontIdxRef.current === 0 ? videoARef.current : videoBRef.current
     if (source !== undefined && source !== front)
       return
+    // 一次性动画已播完：前台视频停在末帧，appliedRef 记录的「已下发目标」不再代表
+    // 正在播放的动画，必须作废——否则同一个一次性目标（终态档重复到达、回落又切回）
+    // 若在兜底动画加载完成前再次下发，会被 shouldReloadAnimation 判为「目标未变」而
+    // 跳过加载，前台就永远停在末帧。作废后同一目标也一定会重新加载播放。
+    appliedRef.current = null
     // 一次性动画播完：优先清 adHoc（点击回应 waving / 待机转向 turn），
     // 否则清非 loop 的 override 命令（bubble 会话动画播完回 idle）。
     if (adHocRef.current !== null) {
