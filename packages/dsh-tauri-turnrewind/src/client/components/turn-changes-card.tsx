@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import type { TurnChangesCardProps } from '../types'
-import { ArrowRotateLeft, ArrowUpRight, ChevronDown, ChevronUp, Icon, SquarePlus, useMountStyle } from 'dsh-tauri-ui/client'
+import { ArrowRotateLeft, ChevronDown, ChevronUp, Icon, SquarePlus, useMountStyle } from 'dsh-tauri-ui/client'
 /**
  * turn-changes-card.tsx — 一轮结束时渲染的变更卡片（视觉对齐官方 deliverables 行）。
  *
@@ -88,11 +88,19 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
     ? cardTitle(record, name => text('editedOne', { name }), count => text('editedMany', { count }))
     : text('unavailableTitle')
 
-  // 打开文件：owner 份额里框架自带 openFile（相对路径按会话 cwd 解析）。
-  // 临时逻辑（需求方要求）：单文件卡片的文件名与多文件清单的每一行都可点击打开，
-  // 内核若未派发 openFile 则退化为不可点击（不报错、不白屏）。
-  const openFile = typeof props.openFile === 'function' ? props.openFile : undefined
-  const singlePath = single ? files[0]?.path : undefined
+  /*
+    TODO(open-file): 「点击打开文件」暂时停用（需求方要求），当前卡片只展示 +xx -x。
+    恢复步骤：
+      1. 取回框架派发的 openFile（turnTail 的 owner 份额自带，相对路径按会话 cwd 解析）；
+      2. 单文件卡片把标题渲染成 <button class="__title--link">、多文件清单把每一行渲染成
+         <button class="__file">，onClick 调 openFile(path)；
+      3. cssr 里把 __title--link 与 __file 的按钮基座重置/指针样式一并恢复
+         （`__file` 现在渲染成 <div>，那些重置已注释）。
+    内核对缺席的 openFile 必须优雅降级（渲染纯文本 / <div>，不报错、不白屏）。
+
+    const openFile = typeof props.openFile === 'function' ? props.openFile : undefined
+    const singlePath = single ? files[0]?.path : undefined
+  */
 
   const onUndo = (): void => {
     if (gitRequired) {
@@ -116,19 +124,7 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
             <Icon as={SquarePlus} size={18} />
           </span>
           <div className="dshp-turnrewind__meta">
-            {/* 单文件：文件名本身就是打开入口（openFile 缺席时退回纯文本，不报错）。 */}
-            {single && singlePath !== undefined && openFile !== undefined
-              ? (
-                  <button
-                    type="button"
-                    className="dshp-turnrewind__title dshp-turnrewind__title--link"
-                    onClick={() => openFile(singlePath)}
-                    title={singlePath}
-                  >
-                    {title}
-                  </button>
-                )
-              : <span className="dshp-turnrewind__title" title={title}>{title}</span>}
+            <span className="dshp-turnrewind__title" title={title}>{title}</span>
             <span className="dshp-turnrewind__sub">
               {record !== null
                 ? (
@@ -141,13 +137,20 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
                           binaryLabel={text('binary')}
                         />
                       </span>
-                      {/* 占位：hover 出现「查看更改」，点击无动作（已撤销后同样保留 hover 效果）。 */}
-                      {single && (
-                        <span className="dshp-turnrewind__hint" data-placeholder="view-changes">
-                          {text('viewChanges')}
-                          <Icon as={ArrowUpRight} size={14} />
-                        </span>
-                      )}
+                      {/*
+                        TODO(view-changes-hover): hover 显示「查看更改」暂时整体停用（需求方要求），
+                        当前只显示 +xx -x。恢复时注意三条：
+                          1. 单文件与**多文件**的 __head 都要有该 hover 效果（不再用 single 条件限定）；
+                          2. 重新从 dsh-tauri-ui/client 引入 ArrowUpRight 图标；
+                          3. cssr 里把 `.dshp-turnrewind__card:hover` 下的
+                             `__counts` 隐藏 / `__hint` 显示两条规则恢复（现在已注释）。
+                        {single && (
+                          <span className="dshp-turnrewind__hint" data-placeholder="view-changes">
+                            {text('viewChanges')}
+                            <Icon as={ArrowUpRight} size={14} />
+                          </span>
+                        )}
+                      */}
                     </>
                   )
                 : (
@@ -186,42 +189,28 @@ export function TurnChangesCard(props: TurnChangesCardProps): ReactElement | nul
 
         {window.visible.length > 0 && (
           <div className="dshp-turnrewind__files">
-            {window.visible.map((file) => {
-              const rowClassName = `dshp-turnrewind__file${file.status === 'D' ? ' dshp-turnrewind__file--deleted' : ''}`
-              const rowTitle = `${file.path}  ${formatCounts(file, text('binary'))}`
-              const rowBody = (
-                <>
-                  <span className="dshp-turnrewind__file-path">{file.path}</span>
-                  <span className="dshp-turnrewind__file-counts">
-                    <ChangeCounts
-                      insertions={file.insertions}
-                      deletions={file.deletions}
-                      binary={file.binary}
-                      binaryLabel={text('binary')}
-                    />
-                  </span>
-                </>
-              )
-              // 临时逻辑：清单行可点击打开文件（owner 份额的 openFile，相对路径按会话 cwd 解析）。
-              return openFile === undefined
-                ? (
-                    <div key={file.path} className={rowClassName} data-status={file.status} title={rowTitle}>
-                      {rowBody}
-                    </div>
-                  )
-                : (
-                    <button
-                      key={file.path}
-                      type="button"
-                      className={rowClassName}
-                      data-status={file.status}
-                      title={rowTitle}
-                      onClick={() => openFile(file.path)}
-                    >
-                      {rowBody}
-                    </button>
-                  )
-            })}
+            {window.visible.map(file => (
+              <div
+                key={file.path}
+                className={`dshp-turnrewind__file${file.status === 'D' ? ' dshp-turnrewind__file--deleted' : ''}`}
+                data-status={file.status}
+                title={`${file.path}  ${formatCounts(file, text('binary'))}`}
+              >
+                <span className="dshp-turnrewind__file-path">{file.path}</span>
+                <span className="dshp-turnrewind__file-counts">
+                  <ChangeCounts
+                    insertions={file.insertions}
+                    deletions={file.deletions}
+                    binary={file.binary}
+                    binaryLabel={text('binary')}
+                  />
+                </span>
+              </div>
+            ))}
+            {/*
+              TODO(open-file): 清单行改为可点击打开文件时，把上面的 <div> 换成
+              <button class="__file" onClick={() => openFile(file.path)}>（见文件顶部 TODO(open-file)）。
+            */}
           </div>
         )}
 

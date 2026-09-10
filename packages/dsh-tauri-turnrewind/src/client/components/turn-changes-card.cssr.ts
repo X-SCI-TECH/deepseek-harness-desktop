@@ -14,8 +14,8 @@ const { bem: { b, e, m }, c } = cssr
  */
 export default b('turnrewind', {
   margin: '2px 0 6px',
-  fontSize: '13px',
-  lineHeight: '20px',
+  fontSize: '12px',
+  lineHeight: '18px',
   color: 'var(--dsw-alias-label-primary)',
 }, [
   e('card', {
@@ -25,63 +25,71 @@ export default b('turnrewind', {
     borderRadius: '14px',
     background: 'var(--dsw-alias-bg-base, #fff)',
     overflow: 'hidden',
-  }, [
-    m('single', {}, [
+  },
+  /*
+    TODO(view-changes-hover): hover 显示「查看更改」暂时整体停用（需求方要求），
+    卡片当前只显示 +xx -x。恢复时改成**整卡**作用域（`&:hover`），
+    这样单文件与多文件的 __head 都能生效：
+
+    [
       c('&:hover .dshp-turnrewind__counts', { display: 'none' }),
       c('&:hover .dshp-turnrewind__hint', { display: 'inline-flex' }),
-    ]),
-  ]),
+    ],
+  */
+  ),
   e('head', {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    padding: '10px 12px',
+    gap: '10px',
+    padding: '8px 10px',
   }),
   e('icon', {
     flex: 'none',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '40px',
-    height: '40px',
-    borderRadius: '10px',
+    width: '36px',
+    height: '36px',
+    borderRadius: '9px',
     color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
     background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08))',
   }),
   e('meta', {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
+    gap: '1px',
     minWidth: 0,
   }),
   e('title', {
-    fontSize: '15px',
-    lineHeight: '20px',
+    fontSize: '13px',
+    lineHeight: '18px',
     fontWeight: '600',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  }, [
-    // 单文件时标题本身就是打开入口（<button>）：清掉按钮基座，视觉与纯文本一致。
-    m('link', {
-      display: 'block',
-      maxWidth: '100%',
-      padding: '0',
-      border: 'none',
-      background: 'transparent',
-      font: 'inherit',
-      textAlign: 'left',
-      cursor: 'pointer',
-      color: 'inherit',
-    }, [
-      c('&:hover', { color: 'var(--dsw-alias-brand-primary, #2f6feb)' }),
-    ]),
-  ]),
+  },
+  /*
+    TODO(open-file): 单文件标题作为打开入口（<button class="__title--link">）时恢复：
+
+    [
+      m('link', {
+        display: 'block',
+        maxWidth: '100%',
+        padding: '0',
+        border: 'none',
+        background: 'transparent',
+        font: 'inherit',
+        textAlign: 'left',
+        color: 'inherit',
+      }, [c('&:hover', { color: 'var(--dsw-alias-brand-primary, #2f6feb)' })]),
+    ],
+  */
+  ),
   e('sub', {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    fontSize: '14px',
+    fontSize: '13px',
     lineHeight: '18px',
     minWidth: 0,
   }),
@@ -96,7 +104,7 @@ export default b('turnrewind', {
     display: 'none',
     alignItems: 'center',
     gap: '4px',
-    fontSize: '14px',
+    fontSize: '13px',
     lineHeight: '18px',
     color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
     whiteSpace: 'nowrap',
@@ -104,10 +112,10 @@ export default b('turnrewind', {
   e('spacer', { flex: '1', minWidth: '8px' }),
   e('badge', {
     flex: 'none',
-    padding: '1px 8px',
+    padding: '1px 7px',
     borderRadius: '999px',
-    fontSize: '12px',
-    lineHeight: '18px',
+    fontSize: '11px',
+    lineHeight: '17px',
     color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
     background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.08))',
   }),
@@ -116,14 +124,14 @@ export default b('turnrewind', {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '4px',
-    height: '30px',
+    height: '28px',
     padding: '0 8px',
     border: 'none',
     borderRadius: '999px',
     background: 'transparent',
     fontFamily: 'inherit',
-    fontSize: '14px',
-    lineHeight: '20px',
+    fontSize: '13px',
+    lineHeight: '18px',
     cursor: 'pointer',
     color: 'var(--dsw-alias-label-primary)',
   }, [
@@ -133,14 +141,14 @@ export default b('turnrewind', {
   ]),
   e('review', {
     flex: 'none',
-    height: '30px',
-    padding: '0 14px',
+    height: '28px',
+    padding: '0 12px',
     border: '1px solid var(--dsw-alias-border-weak, rgba(127,127,127,0.28))',
     borderRadius: '999px',
     background: 'transparent',
     fontFamily: 'inherit',
-    fontSize: '14px',
-    lineHeight: '20px',
+    fontSize: '13px',
+    lineHeight: '18px',
     cursor: 'pointer',
     color: 'var(--dsw-alias-label-primary)',
   }, [
@@ -153,24 +161,21 @@ export default b('turnrewind', {
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: '10px',
     width: '100%',
-    padding: '8px 12px',
-    // 临时逻辑：行本身是 <button>（点击打开文件），因此在此清掉按钮基座；
-    // 若 openFile 缺席则渲染成 <div>，这些重置对它同样无害。
-    border: 'none',
-    background: 'transparent',
-    font: 'inherit',
-    textAlign: 'left',
-    color: 'inherit',
-    fontSize: '14px',
-    lineHeight: '20px',
-    cursor: 'pointer',
+    padding: '7px 10px',
+    fontSize: '13px',
+    lineHeight: '18px',
   }, [
     c('&:hover', { background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.06))' }),
     // 本 turn 删除的文件整行弱化：它们已不在工作区里。
     m('deleted', { color: 'var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary))' }),
   ]),
+  /*
+    TODO(open-file): 清单行改为 <button> 打开文件时，在 `e('file', …)` 里补回按钮基座重置：
+    `border: 'none'`、`background: 'transparent'`、`font: 'inherit'`、
+    `textAlign: 'left'`、`color: 'inherit'`、`cursor: 'pointer'`。
+  */
   e('file-path', {
     flex: '1',
     minWidth: 0,
@@ -184,13 +189,13 @@ export default b('turnrewind', {
     alignItems: 'center',
     gap: '4px',
     width: '100%',
-    padding: '8px 12px',
+    padding: '7px 10px',
     border: 'none',
     borderTop: '1px solid var(--dsw-alias-border-weak, rgba(127,127,127,0.18))',
     background: 'transparent',
     fontFamily: 'inherit',
-    fontSize: '14px',
-    lineHeight: '20px',
+    fontSize: '13px',
+    lineHeight: '18px',
     textAlign: 'left',
     cursor: 'pointer',
     color: 'var(--dsw-alias-label-primary)',
@@ -198,10 +203,10 @@ export default b('turnrewind', {
     c('&:hover', { background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.06))' }),
   ]),
   e('notice', {
-    padding: '8px 12px',
+    padding: '7px 10px',
     borderTop: '1px solid var(--dsw-alias-border-weak, rgba(127,127,127,0.18))',
-    fontSize: '13px',
-    lineHeight: '19px',
+    fontSize: '12px',
+    lineHeight: '18px',
     color: 'var(--dsw-alias-label-secondary, var(--dsw-alias-label-primary))',
   }, [
     m('error', { color: 'var(--dsw-alias-state-error-primary, #d93025)' }),

@@ -13,19 +13,26 @@ vi.mock('dsh-tauri-ui/client', async () => {
 describe('turn-changes-card.cssr（视觉对齐官方 deliverables 行）', () => {
   const css = cardStyle.render()
 
-  it('卡片形态：白底 + 14px 圆角 + 40px 图标块 + 「审核」胶囊按钮', () => {
+  it('卡片形态：白底 + 14px 圆角 + 36px 图标块 + 「审核」胶囊按钮', () => {
     expect(css).toMatch(/\.dshp-turnrewind__card\s*\{[^}]*background: var\(--dsw-alias-bg-base/)
     expect(css).toMatch(/\.dshp-turnrewind__card\s*\{[^}]*border-radius: 14px/)
-    expect(css).toMatch(/\.dshp-turnrewind__icon\s*\{[^}]*width: 40px/)
-    expect(css).toMatch(/\.dshp-turnrewind__icon\s*\{[^}]*height: 40px/)
+    expect(css).toMatch(/\.dshp-turnrewind__icon\s*\{[^}]*width: 36px/)
+    expect(css).toMatch(/\.dshp-turnrewind__icon\s*\{[^}]*height: 36px/)
     expect(css).toMatch(/\.dshp-turnrewind__review\s*\{[^}]*border-radius: 999px/)
     expect(css).toMatch(/\.dshp-turnrewind__title\s*\{[^}]*font-weight: 600/)
   })
 
-  it('单文件卡片 hover：计数行隐藏、「查看更改」出现（纯 CSS 切换）', () => {
-    expect(css).toMatch(/\.dshp-turnrewind__card--single:hover \.dshp-turnrewind__counts\s*\{[^}]*display: none/)
-    expect(css).toMatch(/\.dshp-turnrewind__card--single:hover \.dshp-turnrewind__hint\s*\{[^}]*display: inline-flex/)
-    // 非 hover 时提示默认不占位
+  it('字号整体收小：标题 13 / 副行 13 / 清单行 13 / 徽标 11', () => {
+    expect(css).toMatch(/\.dshp-turnrewind__title\s*\{[^}]*font-size: 13px/)
+    expect(css).toMatch(/\.dshp-turnrewind__sub\s*\{[^}]*font-size: 13px/)
+    expect(css).toMatch(/\.dshp-turnrewind__file\s*\{[^}]*font-size: 13px/)
+    expect(css).toMatch(/\.dshp-turnrewind__badge\s*\{[^}]*font-size: 11px/)
+  })
+
+  it('hover「查看更改」当前整体停用：无 hover 换行规则，提示默认不占位', () => {
+    // 需求：hover 效果与打开文件暂时全部停用，只显示 +xx -x（恢复见 CSSR 内 TODO 注释）。
+    expect(css).not.toMatch(/\.dshp-turnrewind__card--single:hover/)
+    expect(css).not.toMatch(/\.dshp-turnrewind__card:hover/)
     expect(css).toMatch(/\.dshp-turnrewind__hint\s*\{[^}]*display: none/)
   })
 
