@@ -36,7 +36,7 @@ import { RemoteSwitcher } from './remote-switcher'
 /**
  * 壳层窗口顶部导航栏（44px，常驻）：
  *
- *   [侧边栏(展开/收起)] [文件][运行][帮助][更新可用] [ 空白拖拽区 ] [本地/远端] [最小化][最大化][后台化(X)]
+ *   [侧边栏(展开/收起)] [文件][运行][帮助][本地/远端][更新可用] [ 空白拖拽区 ] [最小化][最大化][后台化(X)]
  *
  * - 侧边栏：经 postMessage 操控 iframe 内的 dsh 应用
  *   （`dsh://sidebar:toggle`，由 dsh-tauri 插件的 `client/register/sidebar.ts`
@@ -45,8 +45,10 @@ import { RemoteSwitcher } from './remote-switcher'
  *   导航桥（收回报 + 发命令）在 `iframe.tsx` / `webview.tsx`，本组件只接收状态与回调：
  *   左侧控件只在「dsh-tauri 插件已启用（已安装）」且传入 `onToggleSidebar` 时渲染，
  *   原生桥缺席时控件没有可靠接收方，避免出现点了没反应的死按钮。
- * - 本地 / 远端：`RemoteSwitcher` 固定在右侧，SSH 功能未启用时
- *   自身不渲染（见 `remote-switcher.tsx`）；macOS 上其左侧是「更新可用」chip。
+ * - 本地 / 远端：`RemoteSwitcher` 紧接「帮助」右侧（与「更新可用」chip 同组，
+ *   切换器在前、chip 在后）。二者都刻意排在 `flex-1` 拖拽区之前——排在拖拽区之后
+ *   会被撑满的空间推到窗口按钮旁。SSH 功能未启用时切换器自身不渲染
+ *   （见 `remote-switcher.tsx`）。
  * - 文件：新建窗口（Tauri 再开一个 webview）/ 新聊天、打开文件夹（经协议调用 dsh 官方
  *   「新建会话」「添加工作区」，接收方是 dsh-tauri 的 `client/register/navigation.ts`）/
  *   关闭（隐藏到托盘）/ 退出（完整退出）。两条依赖 iframe 的项在回调缺席时禁用。
@@ -758,6 +760,12 @@ export function Navbar({ onRemoteChange, sidebarCollapsed = false, onToggleSideb
         </div>
       </If>
 
+      {/* 「本地」/ 远端机器切换器：SSH 功能启用后才出现（未启用时组件自身不渲染）。
+          排在「更新可用」chip 之前——它决定「在哪个环境工作」，是比更新提示更基础的
+          状态，故紧接「帮助」右侧。刻意排在拖拽区（`flex-1`）之前：放在其后会被撑满的
+          拖拽区推到窗口按钮旁（macOS 上「帮助」在原生菜单栏，此处即其等价落点）。 */}
+      <RemoteSwitcher onChange={onRemoteChange} visible={onToggleSidebar != null} onManage={onOpenMachineManager} onSync={onOpenSyncToRemote} />
+
       <If cond={updateInfo != null}>
         <Chip
           color="success"
@@ -793,10 +801,6 @@ export function Navbar({ onRemoteChange, sidebarCollapsed = false, onToggleSideb
           0.1.7-rc.2 起官方遮罩的底色落在 `::after` 并带入场淡入，镜像层随样式一起带上
           同参数的 `background` / `backdrop-filter` 过渡（见 `getOverlayMarkedStyle`）。 */}
       <div className="absolute" style={dshStyle.marked || {}} />
-
-      {/* 「本地」/ 远端机器切换器：SSH 功能启用后才出现（未启用时组件自身不渲染），
-          固定在右侧，与左侧的文件/运行/帮助菜单分列两端（macOS 上左侧是「更新可用」chip）。 */}
-      <RemoteSwitcher onChange={onRemoteChange} visible={onToggleSidebar != null} onManage={onOpenMachineManager} onSync={onOpenSyncToRemote} />
 
       <If cond={!IS_MACOS}>
         <Button
